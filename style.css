@@ -131,6 +131,64 @@ body {
   color: var(--text-soft);
 }
 
+/* ===== Class Filter Bar ===== */
+.class-filter {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.filter-chip:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.filter-chip.active {
+  background: var(--text);
+  color: white;
+  border-color: var(--text);
+}
+
+.filter-chip .chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.filter-chip .chip-count {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 20px;
+  text-align: center;
+}
+
+.filter-chip.active .chip-count {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 /* ===== Main Sections ===== */
 main {
   max-width: 1280px;
@@ -229,6 +287,19 @@ main {
   backdrop-filter: blur(4px);
 }
 
+.feed-card .media .class-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
 .feed-card .body {
   padding: 12px 14px;
   display: flex;
@@ -277,6 +348,43 @@ main {
 }
 
 /* ===== Students Grid ===== */
+/* ===== Class Group ===== */
+.class-group {
+  margin-bottom: 28px;
+}
+
+.class-group:last-child {
+  margin-bottom: 0;
+}
+
+.class-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 6px 0;
+}
+
+.class-group-header .group-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.class-group-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.class-group-header .group-count {
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 400;
+}
+
 .students-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -299,6 +407,24 @@ main {
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
   border-color: var(--primary);
+}
+
+.student-card {
+  position: relative;
+}
+
+.student-card .class-ribbon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 .student-card .thumb {

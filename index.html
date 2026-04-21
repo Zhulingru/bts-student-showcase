@@ -27,6 +27,10 @@
       <span id="status-text">準備中…</span>
       <span id="last-updated"></span>
     </div>
+    <!-- 班級篩選列 -->
+    <div id="class-filter" class="class-filter" role="tablist" aria-label="班級篩選">
+      <!-- 按鈕由 JS 動態產生 -->
+    </div>
   </header>
 
   <main>
@@ -34,20 +38,22 @@
     <section class="section" aria-labelledby="feed-heading">
       <div class="section-heading">
         <h2 id="feed-heading">最新動態</h2>
-        <span class="section-sub">全班最近的 12 則產出</span>
+        <span class="section-sub" id="feed-sub">全班最近的 12 則產出</span>
       </div>
       <div id="feed" class="feed">
         <div class="placeholder">載入中…</div>
       </div>
     </section>
 
-    <!-- 下方：27 位學生專屬區 -->
+    <!-- 下方：學生分班區 -->
     <section class="section" aria-labelledby="students-heading">
       <div class="section-heading">
         <h2 id="students-heading">同學們的作品牆</h2>
         <span class="section-sub">點任何一位同學看他的完整歷程</span>
       </div>
-      <div id="students-grid" class="students-grid"></div>
+      <div id="students-container">
+        <!-- 由 JS 動態產生分班區塊 -->
+      </div>
     </section>
   </main>
 

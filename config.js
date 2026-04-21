@@ -6,31 +6,68 @@
 const CONFIG = {
   // 網站上方標題
   siteTitle: "專題製作學習歷程牆",
-  siteSubtitle: "2026 春季班 · 27 位同學的創作即時動態",
+  siteSubtitle: "2026 春季班 · A / B 兩班共 28 位同學的創作即時動態",
 
   // Google 試算表的 ID
-  // 從你試算表網址複製，例如：
+  // 從你試算表網址複製：
   // https://docs.google.com/spreadsheets/d/【這一段就是 SHEET_ID】/edit
-  sheetId: "請貼上你的_SHEET_ID",
+  sheetId: "14QzmfxqKCsqfMwR9QYgcTI7JWDQHcZA5KqWzr_qlHrg",
 
-  // 試算表的分頁名稱（預設 Google 表單建立的是「表單回應 1」）
-  // 建議你把它改名成 "data" 比較穩，改完把下面這行也改成 "data"
+  // 試算表分頁的識別碼，從網址最後 "gid=..." 複製
+  // 優先使用 gid，因為就算分頁改名也不會壞掉；若填了 gid，下面的 sheetName 會被忽略
+  sheetGid: "230117923",
+
+  // 試算表的分頁名稱（若沒有填 sheetGid 時才會用到）
   sheetName: "表單回應 1",
 
   // Google 表單填寫的網址（學生點「新增產出」按鈕會跳到這裡）
-  formUrl: "https://docs.google.com/forms/d/e/你的表單ID/viewform",
+  formUrl: "https://forms.gle/91MQyqctWm2SaLjP9",
 
   // 自動刷新間隔（秒），建議 30 秒
   refreshIntervalSeconds: 30,
 
-  // 27 位學生名單（順序會決定網格排列順序）
-  // 名字必須和 Google 表單裡「學生姓名」下拉選單的選項完全一致
+  // 班級設定
+  // label 是網站上顯示的文字，必須和 Google 表單「班級」欄位的選項完全一致
+  // color 是班級主色，可以改成你喜歡的色碼
+  classes: [
+    { id: "A", label: "A 班", color: "#0ea5e9" },  // 天藍
+    { id: "B", label: "B 班", color: "#f59e0b" },  // 琥珀
+  ],
+
+  // 學生名單（順序會決定網格排列順序）
+  // name 必須和 Google 表單「學生姓名」下拉選單的選項完全一致（一字不差）
+  // class 必須對應上方 classes 的 id（"A" 或 "B"）
   students: [
-    "王小明", "陳美麗", "林大華", "張雅婷", "李志豪",
-    "黃佳蓉", "吳俊傑", "劉佩君", "蔡宗翰", "鄭欣怡",
-    "謝承恩", "楊淑芬", "許志偉", "高婉如", "周建宏",
-    "朱雅雯", "何柏霖", "潘詩涵", "曾柏翰", "呂靜宜",
-    "蘇冠霖", "江品妍", "羅文彬", "鍾昀錚", "彭子瑜",
-    "洪睿哲", "藍思穎"
+    // ===== A 班（13 位）=====
+    { name: "黃羿晴 Luke",     class: "A" },
+    { name: "張凱倫 Kieran",   class: "A" },
+    { name: "黃詠琳 Iris",     class: "A" },
+    { name: "林于崴 RYAN",     class: "A" },
+    { name: "林若谷 Peyton",   class: "A" },
+    { name: "楊靖鈞 Kayden",   class: "A" },
+    { name: "盧愛心 Emily",    class: "A" },
+    { name: "馬家榆 Claire",   class: "A" },
+    { name: "施宥均 Yoz",      class: "A" },
+    { name: "張彥霆 Ziv",      class: "A" },
+    { name: "楊承樺 Joshua",   class: "A" },
+    { name: "李宛頤 Lillian",  class: "A" },
+    { name: "謝凝思 Ryan",     class: "A" },
+
+    // ===== B 班（15 位）=====
+    { name: "陳妤欣 Moana",     class: "B" },
+    { name: "鍾勻浩 Cory",      class: "B" },
+    { name: "涂子宥 Joey",      class: "B" },
+    { name: "何樂 Melody",      class: "B" },
+    { name: "黃可馨 Emma",      class: "B" },
+    { name: "程亮瑜 Winnie",    class: "B" },
+    { name: "張語晴 Zoe",       class: "B" },
+    { name: "張一心 Alice",     class: "B" },
+    { name: "杜品儀 Tiffany",   class: "B" },
+    { name: "洪若馨 Lucy",      class: "B" },
+    { name: "胡睿成 André",     class: "B" },
+    { name: "楊元鈞 Jayden",    class: "B" },
+    { name: "蕭弗盈 Kimberley", class: "B" },
+    { name: "許宸熙 Chance",    class: "B" },
+    { name: "余宜融 Charlotte", class: "B" },
   ],
 };

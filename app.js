@@ -6,6 +6,19 @@
 (function () {
   "use strict";
 
+  // ---------- 常數與工具：班級 ----------
+  const CLASSES = Array.isArray(CONFIG.classes) && CONFIG.classes.length
+    ? CONFIG.classes
+    : [];
+  const CLASS_BY_ID = new Map(CLASSES.map(c => [c.id, c]));
+  const STUDENT_TO_CLASS = new Map(
+    (CONFIG.students || []).map(s => [s.name, s.class])
+  );
+
+  function getClassInfo(classId) {
+    return CLASS_BY_ID.get(classId) || { id: classId, label: classId || "未分班", color: "#8a93a6" };
+  }
+
   // ---------- 初始化畫面文字 ----------
   document.getElementById("site-title").textContent = CONFIG.siteTitle;
   document.getElementById("site-subtitle").textContent = CONFIG.siteSubtitle;
@@ -15,13 +28,52 @@
   const statusEl = document.getElementById("status-text");
   const lastUpdatedEl = document.getElementById("last-updated");
   const feedEl = document.getElementById("feed");
-  const gridEl = document.getElementById("students-grid");
+  const feedSubEl = document.getElementById("feed-sub");
+  const studentsContainerEl = document.getElementById("students-container");
+  const filterEl = document.getElementById("class-filter");
   const modalEl = document.getElementById("modal");
   const modalTitleEl = document.getElementById("modal-title");
   const modalBodyEl = document.getElementById("modal-body");
 
   let allEntries = [];
   let entriesByStudent = new Map();
+  let activeFilter = "ALL"; // "ALL" | 班級 id（例如 "A" / "B"）
+
+  // ---------- 篩選列 ----------
+  function renderFilterBar() {
+    const chips = [
+      { id: "ALL", label: "全部", color: null },
+      ...CLASSES.map(c => ({ id: c.id, label: c.label, color: c.color })),
+    ];
+
+    filterEl.innerHTML = chips.map(chip => {
+      const count = chip.id === "ALL"
+        ? allEntries.length
+        : allEntries.filter(e => STUDENT_TO_CLASS.get(e.student) === chip.id).length;
+      const isActive = activeFilter === chip.id;
+      const dot = chip.color
+        ? `<span class="chip-dot" style="background:${chip.color}"></span>`
+        : "";
+      return `
+        <button class="filter-chip ${isActive ? "active" : ""}"
+                data-filter="${escapeHtml(chip.id)}"
+                role="tab"
+                aria-selected="${isActive}">
+          ${dot}
+          <span>${escapeHtml(chip.label)}</span>
+          <span class="chip-count">${count}</span>
+        </button>
+      `;
+    }).join("");
+
+    filterEl.querySelectorAll(".filter-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        activeFilter = btn.dataset.filter;
+        renderFilterBar();
+        render();
+      });
+    });
+  }
 
   // ---------- 工具函式 ----------
   function setStatus(kind, text) {
@@ -95,7 +147,6 @@
         return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>🖼</div>'" />`;
       }
       if (isVideoType(entry.type)) {
-        // 影片在卡片上顯示縮圖，在詳情頁用 iframe
         return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>🎬</div>'" />`;
       }
       if (isDocType(entry.type)) {
@@ -118,20 +169,45 @@
       .replace(/'/g, "&#39;");
   }
 
+  // 由姓名反推班級（以 config 的 students 為準）；若表單欄位也帶了班級，優先用表單的
+  function resolveClassId(studentName, classFromForm) {
+    const fromForm = classFromForm ? normalizeClassId(classFromForm) : null;
+    if (fromForm) return fromForm;
+    return STUDENT_TO_CLASS.get(studentName) || null;
+  }
+
+  // 把 "A 班" "A班" "A" 等形式正規化成 config 裡的 id
+  function normalizeClassId(raw) {
+    if (!raw) return null;
+    const s = String(raw).trim().toUpperCase().replace(/\s+/g, "");
+    for (const c of CLASSES) {
+      const id = c.id.toUpperCase();
+      if (s === id) return c.id;
+      if (s.startsWith(id) && s.length <= id.length + 2) return c.id; // 允許 "A班" 形式
+      const labelNoSpace = (c.label || "").toUpperCase().replace(/\s+/g, "");
+      if (s === labelNoSpace) return c.id;
+    }
+    return null;
+  }
+
   // ---------- 從 Google 試算表抓資料 ----------
   async function fetchSheetData() {
     if (!CONFIG.sheetId || CONFIG.sheetId.includes("請貼上")) {
       throw new Error("尚未設定 Sheet ID，請編輯 config.js");
     }
 
-    const sheetParam = CONFIG.sheetName ? `&sheet=${encodeURIComponent(CONFIG.sheetName)}` : "";
+    let sheetParam = "";
+    if (CONFIG.sheetGid) {
+      sheetParam = `&gid=${encodeURIComponent(CONFIG.sheetGid)}`;
+    } else if (CONFIG.sheetName) {
+      sheetParam = `&sheet=${encodeURIComponent(CONFIG.sheetName)}`;
+    }
     const url = `https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/gviz/tq?tqx=out:json${sheetParam}`;
 
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`無法取得試算表資料（HTTP ${res.status}）`);
     const text = await res.text();
 
-    // gviz 回傳的是 JSONP 格式，要手動切出 JSON
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
     if (start < 0 || end < 0) throw new Error("試算表回應格式異常");
@@ -153,10 +229,6 @@
     return rows.map(parseRow).filter(Boolean);
   }
 
-  // 將試算表一列轉換為我們要用的資料
-  // 預設的欄位名稱（Google 表單自動產生）：
-  //   時間戳記 / 學生姓名 / 產出類型 / 標題 / 說明 / 檔案上傳 / 外部連結
-  // 若使用者改了欄位名稱，可以調整下面的 keys
   function parseRow(row) {
     const keys = Object.keys(row);
     const pick = (candidates) => {
@@ -170,6 +242,7 @@
 
     const rawTime = pick(["時間", "Timestamp", "timestamp"]);
     const student = pick(["學生", "姓名", "name", "Name"]);
+    const klass = pick(["班級", "班別", "class", "Class"]);
     const type = pick(["類型", "type", "Type"]);
     const title = pick(["標題", "title", "Title"]);
     const desc = pick(["說明", "描述", "desc"]);
@@ -182,7 +255,6 @@
     if (rawTime instanceof Date) {
       timestamp = rawTime;
     } else if (typeof rawTime === "string") {
-      // gviz 時間回傳常見形式：Date(2026,3,21,14,30,0)
       const m = rawTime.match(/Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)/);
       if (m) {
         timestamp = new Date(+m[1], +m[2], +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
@@ -193,9 +265,13 @@
       timestamp = new Date();
     }
 
+    const studentName = String(student).trim();
+    const classId = resolveClassId(studentName, klass);
+
     return {
       timestamp,
-      student: String(student).trim(),
+      student: studentName,
+      classId,
       type: type ? String(type).trim() : "",
       title: title ? String(title).trim() : "（未命名）",
       desc: desc ? String(desc).trim() : "",
@@ -204,27 +280,52 @@
     };
   }
 
+  // ---------- 篩選邏輯 ----------
+  function passesFilter(entry) {
+    if (activeFilter === "ALL") return true;
+    return entry.classId === activeFilter;
+  }
+
+  function studentPassesFilter(student) {
+    if (activeFilter === "ALL") return true;
+    return student.class === activeFilter;
+  }
+
   // ---------- 渲染 ----------
   function render() {
+    renderFilterBar();
     renderFeed();
-    renderStudentsGrid();
+    renderStudentsContainer();
   }
 
   function renderFeed() {
-    const latest = [...allEntries]
+    const filtered = allEntries.filter(passesFilter);
+    const latest = [...filtered]
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, 12);
 
+    const filterLabel = activeFilter === "ALL" ? "全班" : getClassInfo(activeFilter).label;
+    feedSubEl.textContent = `${filterLabel}最近的 ${Math.min(latest.length, 12)} 則產出`;
+
     if (latest.length === 0) {
-      feedEl.innerHTML = `<div class="placeholder">還沒有任何產出，歡迎成為第一個！</div>`;
+      const msg = activeFilter === "ALL"
+        ? "還沒有任何產出，歡迎成為第一個！"
+        : `${filterLabel}還沒有任何產出`;
+      feedEl.innerHTML = `<div class="placeholder">${msg}</div>`;
       return;
     }
 
-    feedEl.innerHTML = latest.map(entry => `
+    feedEl.innerHTML = latest.map(entry => {
+      const cls = getClassInfo(entry.classId);
+      const classBadge = entry.classId
+        ? `<span class="class-badge" style="background:${cls.color}">${escapeHtml(entry.classId)}</span>`
+        : "";
+      return `
       <article class="feed-card" data-student="${escapeHtml(entry.student)}">
         <div class="media">
           ${getMediaHtml(entry, 600)}
           <span class="type-badge">${escapeHtml(typeBadge(entry.type))}</span>
+          ${classBadge}
         </div>
         <div class="body">
           <div class="author">
@@ -235,42 +336,74 @@
           <div class="timestamp">${formatTime(entry.timestamp)}</div>
         </div>
       </article>
-    `).join("");
+    `;
+    }).join("");
 
     feedEl.querySelectorAll(".feed-card").forEach(card => {
       card.addEventListener("click", () => openStudentModal(card.dataset.student));
     });
   }
 
-  function renderStudentsGrid() {
-    gridEl.innerHTML = CONFIG.students.map(name => {
-      const entries = entriesByStudent.get(name) || [];
-      const count = entries.length;
-      const latest = entries[0]; // 已排序
-      const thumbHtml = latest
-        ? getMediaHtml(latest, 400)
-        : `<span class="empty">尚未上傳</span>`;
+  function renderStudentsContainer() {
+    // 決定要顯示哪些班級區塊
+    const classesToShow = activeFilter === "ALL"
+      ? CLASSES
+      : CLASSES.filter(c => c.id === activeFilter);
 
+    studentsContainerEl.innerHTML = classesToShow.map(cls => {
+      const students = (CONFIG.students || []).filter(s => s.class === cls.id);
+      const cards = students.map(s => renderStudentCard(s, cls)).join("");
+      // 全部模式下顯示班級分群標題；單一班級模式下不重複顯示
+      const headerHtml = activeFilter === "ALL"
+        ? `
+          <div class="class-group-header">
+            <span class="group-dot" style="background:${cls.color}"></span>
+            <h3>${escapeHtml(cls.label)}</h3>
+            <span class="group-count">${students.length} 人</span>
+          </div>`
+        : "";
       return `
-        <div class="student-card" data-student="${escapeHtml(name)}">
-          <div class="thumb">${thumbHtml}</div>
-          <div class="info">
-            <span class="name">${escapeHtml(name)}</span>
-            <span class="count ${count === 0 ? "zero" : ""}">${count}</span>
-          </div>
+        <div class="class-group" data-class="${escapeHtml(cls.id)}">
+          ${headerHtml}
+          <div class="students-grid">${cards}</div>
         </div>
       `;
     }).join("");
 
-    gridEl.querySelectorAll(".student-card").forEach(card => {
+    studentsContainerEl.querySelectorAll(".student-card").forEach(card => {
       card.addEventListener("click", () => openStudentModal(card.dataset.student));
     });
+  }
+
+  function renderStudentCard(student, cls) {
+    const entries = entriesByStudent.get(student.name) || [];
+    const count = entries.length;
+    const latest = entries[0];
+    const thumbHtml = latest
+      ? getMediaHtml(latest, 400)
+      : `<span class="empty">尚未上傳</span>`;
+
+    return `
+      <div class="student-card" data-student="${escapeHtml(student.name)}">
+        <span class="class-ribbon" style="background:${cls.color}">${escapeHtml(student.class)}</span>
+        <div class="thumb">${thumbHtml}</div>
+        <div class="info">
+          <span class="name">${escapeHtml(student.name)}</span>
+          <span class="count ${count === 0 ? "zero" : ""}">${count}</span>
+        </div>
+      </div>
+    `;
   }
 
   // ---------- 學生詳情彈窗 ----------
   function openStudentModal(studentName) {
     const entries = entriesByStudent.get(studentName) || [];
-    modalTitleEl.textContent = `${studentName}（共 ${entries.length} 則產出）`;
+    const classId = STUDENT_TO_CLASS.get(studentName);
+    const cls = classId ? getClassInfo(classId) : null;
+    const classTag = cls
+      ? ` <span class="tag" style="background:${cls.color};color:white">${escapeHtml(cls.label)}</span>`
+      : "";
+    modalTitleEl.innerHTML = `${escapeHtml(studentName)}${classTag} <span style="color:var(--text-soft);font-weight:400;font-size:14px">· 共 ${entries.length} 則產出</span>`;
 
     if (entries.length === 0) {
       modalBodyEl.innerHTML = `<div class="placeholder">這位同學還沒有上傳任何產出</div>`;
@@ -290,7 +423,6 @@
       if (isImageType(entry.type)) {
         mediaBlock = `<img src="${driveThumb(fileId, 800)}" alt="${escapeHtml(entry.title)}" />`;
       } else if (isVideoType(entry.type) || isDocType(entry.type)) {
-        // 影片與文件用 Drive iframe 預覽，效果穩定
         mediaBlock = `<div class="fallback">${isVideoType(entry.type) ? "🎬" : "📄"}</div>`;
       } else {
         mediaBlock = `<img src="${driveThumb(fileId, 800)}" alt="${escapeHtml(entry.title)}" />`;
@@ -345,12 +477,10 @@
       const entries = await fetchSheetData();
       allEntries = entries;
 
-      // 按學生分組並依時間排序（新→舊）
       entriesByStudent = new Map();
-      for (const name of CONFIG.students) entriesByStudent.set(name, []);
+      for (const s of CONFIG.students || []) entriesByStudent.set(s.name, []);
       for (const e of entries) {
         if (!entriesByStudent.has(e.student)) {
-          // 若表單回傳的姓名不在名單中，也一併顯示（避免資料遺失）
           entriesByStudent.set(e.student, []);
         }
         entriesByStudent.get(e.student).push(e);
@@ -365,13 +495,13 @@
     } catch (err) {
       console.error(err);
       setStatus("err", `載入失敗：${err.message}`);
+      // 即使載入失敗，也先把篩選列和學生格子的空狀態渲染出來，讓老師知道版面長什麼樣
+      render();
     }
   }
 
-  // 手動刷新按鈕
   document.getElementById("refresh-btn").addEventListener("click", load);
 
-  // 啟動
   load();
   setInterval(load, Math.max(10, CONFIG.refreshIntervalSeconds) * 1000);
 })();
