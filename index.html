@@ -4,52 +4,67 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>專題製作學習歷程牆</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&family=Noto+Serif+TC:wght@400;500;600&family=Noto+Sans+TC:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="site-header">
     <div class="header-inner">
-      <div class="header-text">
-        <h1 id="site-title">載入中…</h1>
-        <p id="site-subtitle"></p>
+      <div class="header-brand">
+        <span class="brand-mark">BTS</span>
+        <span class="brand-sep"></span>
+        <span class="brand-sub">Student Showcase · 2026</span>
       </div>
       <div class="header-actions">
         <a id="upload-btn" class="btn btn-primary" href="#" target="_blank" rel="noopener">
-          <span class="btn-icon">＋</span>
-          新增我的產出
+          新增作品
         </a>
-        <button id="refresh-btn" class="btn btn-ghost" title="手動刷新">
-          <span class="btn-icon">⟳</span>
-        </button>
+        <button id="refresh-btn" class="btn btn-ghost" title="手動刷新">⟳</button>
       </div>
     </div>
     <div class="status-bar">
       <span id="status-text">準備中…</span>
       <span id="last-updated"></span>
     </div>
-    <!-- 班級篩選列 -->
-    <div id="class-filter" class="class-filter" role="tablist" aria-label="班級篩選">
-      <!-- 按鈕由 JS 動態產生 -->
-    </div>
   </header>
 
+  <!-- Hero：展覽大標 -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-eyebrow">Spring Exhibition · 2026</div>
+      <h1 id="site-title" class="hero-title">載入中…</h1>
+      <p id="site-subtitle" class="hero-sub"></p>
+    </div>
+  </section>
+
+  <!-- 班級篩選列（展區分類） -->
+  <nav id="class-filter" class="class-filter" role="tablist" aria-label="班級篩選">
+    <!-- 按鈕由 JS 動態產生 -->
+  </nav>
+
   <main>
-    <!-- 上方：最新動態牆 -->
+    <!-- 本期作品 -->
     <section class="section" aria-labelledby="feed-heading">
       <div class="section-heading">
-        <h2 id="feed-heading">最新動態</h2>
-        <span class="section-sub" id="feed-sub">全班最近的 12 則產出</span>
+        <h2 id="feed-heading">本期作品</h2>
+        <span class="section-index">01</span>
+        <span class="section-sub" id="feed-sub">全班最近的 12 件</span>
       </div>
       <div id="feed" class="feed">
-        <div class="placeholder">載入中…</div>
+        <div class="placeholder">LOADING…</div>
       </div>
     </section>
 
-    <!-- 下方：學生分班區 -->
+    <!-- 創作者名冊 -->
     <section class="section" aria-labelledby="students-heading">
       <div class="section-heading">
-        <h2 id="students-heading">同學們的作品牆</h2>
-        <span class="section-sub">點任何一位同學看他的完整歷程</span>
+        <h2 id="students-heading">創作者名冊</h2>
+        <span class="section-index">02</span>
+        <span class="section-sub">點任何一位同學進入個人展區</span>
       </div>
       <div id="students-container">
         <!-- 由 JS 動態產生分班區塊 -->
@@ -57,7 +72,7 @@
     </section>
   </main>
 
-  <!-- 彈出視窗：點學生看詳情 -->
+  <!-- 作品詳情 -->
   <div id="modal" class="modal" hidden>
     <div class="modal-backdrop" data-close-modal></div>
     <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -70,7 +85,9 @@
   </div>
 
   <footer class="site-footer">
-    <p>每 <span id="refresh-interval-label">30</span> 秒自動更新 · 若圖片載入不出來，點一下可開啟完整檔案</p>
+    <div class="footer-rule"></div>
+    <p>AUTO-REFRESH EVERY <span id="refresh-interval-label">30</span> SECONDS</p>
+    <p class="footer-credit">BTS Student Showcase · Curated for Project-Based Learning</p>
   </footer>
 
   <script src="config.js"></script>
