@@ -11,8 +11,16 @@
     ? CONFIG.classes
     : [];
   const CLASS_BY_ID = new Map(CLASSES.map(c => [c.id, c]));
+
+  // 姓名正規化：去除前後空白、把連續空白壓成單一空白
+  // 避免 config 和表單選項之間多一個空格就比不到
+  function normalizeName(s) {
+    if (s == null) return "";
+    return String(s).trim().replace(/\s+/g, " ");
+  }
+
   const STUDENT_TO_CLASS = new Map(
-    (CONFIG.students || []).map(s => [s.name, s.class])
+    (CONFIG.students || []).map(s => [normalizeName(s.name), s.class])
   );
 
   function getClassInfo(classId) {
@@ -298,7 +306,7 @@
       timestamp = new Date();
     }
 
-    const studentName = String(student).trim();
+    const studentName = normalizeName(student);
     const classId = resolveClassId(studentName, klass);
 
     return {
@@ -409,7 +417,7 @@
   }
 
   function renderStudentCard(student, cls) {
-    const entries = entriesByStudent.get(student.name) || [];
+    const entries = entriesByStudent.get(normalizeName(student.name)) || [];
     const count = entries.length;
     const latest = entries[0];
     const thumbHtml = latest
@@ -430,8 +438,9 @@
 
   // ---------- 學生詳情彈窗 ----------
   function openStudentModal(studentName) {
-    const entries = entriesByStudent.get(studentName) || [];
-    const classId = STUDENT_TO_CLASS.get(studentName);
+    const key = normalizeName(studentName);
+    const entries = entriesByStudent.get(key) || [];
+    const classId = STUDENT_TO_CLASS.get(key);
     const cls = classId ? getClassInfo(classId) : null;
     const classTag = cls
       ? ` <span class="tag" style="background:${cls.color};color:white">${escapeHtml(cls.label)}</span>`
@@ -511,15 +520,28 @@
       allEntries = entries;
 
       entriesByStudent = new Map();
-      for (const s of CONFIG.students || []) entriesByStudent.set(s.name, []);
+      for (const s of CONFIG.students || []) entriesByStudent.set(normalizeName(s.name), []);
+
+      const configNameSet = new Set((CONFIG.students || []).map(s => normalizeName(s.name)));
+      const unmatched = new Set();
       for (const e of entries) {
-        if (!entriesByStudent.has(e.student)) {
-          entriesByStudent.set(e.student, []);
+        const key = normalizeName(e.student);
+        if (!configNameSet.has(key)) unmatched.add(e.student);
+        if (!entriesByStudent.has(key)) {
+          entriesByStudent.set(key, []);
         }
-        entriesByStudent.get(e.student).push(e);
+        entriesByStudent.get(key).push(e);
       }
       for (const arr of entriesByStudent.values()) {
         arr.sort((a, b) => b.timestamp - a.timestamp);
+      }
+
+      if (unmatched.size > 0) {
+        console.warn(
+          "[student-showcase] 以下姓名出現在試算表但不在 config.js 的 students 裡，不會出現在對應班級的格子中：\n" +
+          [...unmatched].map(n => `  - "${n}"`).join("\n") +
+          "\n請把 config.js 裡的姓名改成與表單／試算表完全一致（含空白）。"
+        );
       }
 
       render();

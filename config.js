@@ -77,6 +77,6 @@ const CONFIG = {
     { name: "余宜融 Charlotte", class: "B" },
 
     // ===== X 班 · 老師示範用（1 位）=====
-    { name: "Chibi 範例", class: "X" },
+    { name: "Chibi", class: "X" },
   ],
 };
