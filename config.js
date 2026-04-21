@@ -6,7 +6,7 @@
 const CONFIG = {
   // 網站上方標題
   siteTitle: "專題製作學習歷程牆",
-  siteSubtitle: "2026 春季班 · A / B 兩班共 28 位同學的創作即時動態",
+  siteSubtitle: "114T3 · A / B 兩班共 28 位同學的創作即時動態",
 
   // Google 試算表的 ID
   // 從你試算表網址複製：
