@@ -191,21 +191,10 @@
   }
 
   // ---------- 從 Google 試算表抓資料 ----------
-  async function fetchSheetData() {
-    if (!CONFIG.sheetId || CONFIG.sheetId.includes("請貼上")) {
-      throw new Error("尚未設定 Sheet ID，請編輯 config.js");
-    }
-
-    let sheetParam = "";
-    if (CONFIG.sheetGid) {
-      sheetParam = `&gid=${encodeURIComponent(CONFIG.sheetGid)}`;
-    } else if (CONFIG.sheetName) {
-      sheetParam = `&sheet=${encodeURIComponent(CONFIG.sheetName)}`;
-    }
+  async function fetchOneSheet(sheetParam) {
     const url = `https://docs.google.com/spreadsheets/d/${CONFIG.sheetId}/gviz/tq?tqx=out:json${sheetParam}`;
-
     const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`無法取得試算表資料（HTTP ${res.status}）`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
 
     const start = text.indexOf("{");
@@ -227,6 +216,50 @@
     });
 
     return rows.map(parseRow).filter(Boolean);
+  }
+
+  async function fetchSheetData() {
+    if (!CONFIG.sheetId || CONFIG.sheetId.includes("請貼上")) {
+      throw new Error("尚未設定 Sheet ID，請編輯 config.js");
+    }
+
+    // 組出要抓的分頁參數列表
+    const sheetParams = [];
+    if (Array.isArray(CONFIG.sheetGids) && CONFIG.sheetGids.length) {
+      for (const g of CONFIG.sheetGids) {
+        if (g) sheetParams.push(`&gid=${encodeURIComponent(g)}`);
+      }
+    } else if (CONFIG.sheetGid) {
+      sheetParams.push(`&gid=${encodeURIComponent(CONFIG.sheetGid)}`);
+    } else if (CONFIG.sheetName) {
+      sheetParams.push(`&sheet=${encodeURIComponent(CONFIG.sheetName)}`);
+    } else {
+      sheetParams.push("");
+    }
+
+    // 並行抓所有分頁，個別失敗不影響其他分頁
+    const results = await Promise.allSettled(sheetParams.map(p => fetchOneSheet(p)));
+
+    const allEntriesFromAllSheets = [];
+    const errors = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") {
+        allEntriesFromAllSheets.push(...r.value);
+      } else {
+        errors.push(`分頁 ${i + 1}：${r.reason.message || r.reason}`);
+      }
+    });
+
+    if (allEntriesFromAllSheets.length === 0 && errors.length > 0) {
+      throw new Error(errors.join("；"));
+    }
+
+    // 即使有部分分頁失敗，仍把錯誤紀錄到 console
+    if (errors.length > 0) {
+      console.warn("部分分頁載入失敗：", errors.join("；"));
+    }
+
+    return allEntriesFromAllSheets;
   }
 
   function parseRow(row) {

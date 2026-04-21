@@ -13,11 +13,16 @@ const CONFIG = {
   // https://docs.google.com/spreadsheets/d/【這一段就是 SHEET_ID】/edit
   sheetId: "14QzmfxqKCsqfMwR9QYgcTI7JWDQHcZA5KqWzr_qlHrg",
 
-  // 試算表分頁的識別碼，從網址最後 "gid=..." 複製
-  // 優先使用 gid，因為就算分頁改名也不會壞掉；若填了 gid，下面的 sheetName 會被忽略
-  sheetGid: "230117923",
+  // 試算表分頁的識別碼清單（陣列，可放多個 gid）
+  // - 一般情境：只有一個分頁（學生表單回應），放一個就好
+  // - 多表單情境：第二張表單（例如老師示範表單）也可以寫入同一份試算表的新分頁，
+  //   建好後把新分頁網址裡的 gid 也加進來，網站會同時讀取兩者並合併
+  sheetGids: [
+    "230117923",   // Form A：學生表單 → 分頁「表單回應 1」
+    "1910543082",  // Form B：老師示範表單 → 分頁「表單回應 2」
+  ],
 
-  // 試算表的分頁名稱（若沒有填 sheetGid 時才會用到）
+  // 若沒設 sheetGids，會退回使用這個分頁名稱
   sheetName: "表單回應 1",
 
   // Google 表單填寫的網址（學生點「新增產出」按鈕會跳到這裡）
@@ -30,8 +35,9 @@ const CONFIG = {
   // label 是網站上顯示的文字，必須和 Google 表單「班級」欄位的選項完全一致
   // color 是班級主色，可以改成你喜歡的色碼
   classes: [
-    { id: "A", label: "A 班", color: "#0ea5e9" },  // 天藍
-    { id: "B", label: "B 班", color: "#f59e0b" },  // 琥珀
+    { id: "A", label: "A 班",       color: "#0ea5e9" },  // 天藍
+    { id: "B", label: "B 班",       color: "#f59e0b" },  // 琥珀
+    { id: "X", label: "X 班（示範）", color: "#8b5cf6" },  // 紫色：老師示範用，非學生帳號
   ],
 
   // 學生名單（順序會決定網格排列順序）
@@ -69,5 +75,8 @@ const CONFIG = {
     { name: "蕭弗盈 Kimberley", class: "B" },
     { name: "許宸熙 Chance",    class: "B" },
     { name: "余宜融 Charlotte", class: "B" },
+
+    // ===== X 班 · 老師示範用（1 位）=====
+    { name: "Chibi 範例", class: "X" },
   ],
 };
