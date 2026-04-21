@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>專題製作學習歷程牆</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-text">
+        <h1 id="site-title">載入中…</h1>
+        <p id="site-subtitle"></p>
+      </div>
+      <div class="header-actions">
+        <a id="upload-btn" class="btn btn-primary" href="#" target="_blank" rel="noopener">
+          <span class="btn-icon">＋</span>
+          新增我的產出
+        </a>
+        <button id="refresh-btn" class="btn btn-ghost" title="手動刷新">
+          <span class="btn-icon">⟳</span>
+        </button>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="status-text">準備中…</span>
+      <span id="last-updated"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 上方：最新動態牆 -->
+    <section class="section" aria-labelledby="feed-heading">
+      <div class="section-heading">
+        <h2 id="feed-heading">最新動態</h2>
+        <span class="section-sub">全班最近的 12 則產出</span>
+      </div>
+      <div id="feed" class="feed">
+        <div class="placeholder">載入中…</div>
+      </div>
+    </section>
+
+    <!-- 下方：27 位學生專屬區 -->
+    <section class="section" aria-labelledby="students-heading">
+      <div class="section-heading">
+        <h2 id="students-heading">同學們的作品牆</h2>
+        <span class="section-sub">點任何一位同學看他的完整歷程</span>
+      </div>
+      <div id="students-grid" class="students-grid"></div>
+    </section>
+  </main>
+
+  <!-- 彈出視窗：點學生看詳情 -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h3 id="modal-title">學生名字</h3>
+        <button class="modal-close" data-close-modal aria-label="關閉">×</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <p>每 <span id="refresh-interval-label">30</span> 秒自動更新 · 若圖片載入不出來，點一下可開啟完整檔案</p>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
