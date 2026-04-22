@@ -204,26 +204,55 @@ function sanitize(s) {
 }
 
 
-// ============== 學生 Email 對照表（僅存於 Apps Script，不進 GitHub） ==============
-// ⚠️ 真正的 email 對照表只放在你 Apps Script 編輯器裡。
-// 這份 repo 內的版本只放假資料示範格式，請勿把真實 email 提交到 GitHub。
-
-const STUDENT_EMAILS = [
+// ============== 學生私密資料（email + 驗證碼，僅存於 Apps Script，不進 GitHub）==============
+// ⚠️ 這張表是個資，請勿把真實 email 或驗證碼提交到 GitHub。
+//    本檔案在 repo 中只放假資料示範格式，真正的資料維持只在 Apps Script 編輯器內。
+//
+// 每一筆欄位：
+//   name  ：和網站 config.js 裡的 students[].name 必須完全一致
+//   email ：學生的 Google 帳號 email，用來分享資料夾與寄驗證碼通知
+//   code  ：該學生的驗證碼；學生在網站「選擇身分」時要輸入這串才會認證成功
+//           預設 4 碼數字，可用 generateMissingCodes() 自動產一組貼回來
+//           比對時不分大小寫、前後空白自動去掉
+//
+const STUDENTS_PRIVATE = [
   // 範例格式（實際資料放在 Apps Script 編輯器內）：
-  // { name: "王小明", email: "s000000_example@school.edu.tw" },
+  // { name: "王小明", email: "s000000_example@school.edu.tw", code: "3714" },
 ];
 
+// 寄給學生的信件主旨與內容模板
+// {{name}} {{code}} {{folderUrl}} {{folderName}} 會在寄信時被替換
+const SHARE_EMAIL_SUBJECT = "【專題歷程牆】你的個人資料夾與驗證碼";
+const SHARE_EMAIL_BODY = `嗨 {{name}}：
 
-// ============== 分享資料夾腳本 ==============
+老師把你在《專題製作》這學期的個人雲端資料夾分享給你了，以後你的產出檔案都會被自動分類到這裡：
+
+📁 {{folderName}}
+{{folderUrl}}
+
+另外，我們也架了一個班級學習歷程牆，你可以在上面幫同學按 emoji 和留言。第一次進網站時請點右上角「選擇身分」挑你自己的名字，然後輸入下面這組**只屬於你**的驗證碼：
+
+🔑 你的驗證碼：{{code}}
+
+（這組碼請不要公開；其他人拿不到就沒辦法冒你的名字留言。）
+
+如有問題歡迎私訊老師。祝創作順利！
+`;
+
+
+// ============== 分享資料夾腳本（含寄驗證碼通知）==============
 // 權限：編輯者（可看、可改、可刪）
-// 通知：會寄通知信給學生
+// 通知：
+//   - Google Drive 預設會寄一封「某某分享了資料夾給你」通知信
+//   - 本腳本會「另外」寄一封自己寫的信，裡面有資料夾連結 + 驗證碼
+//   → 學生會收到兩封信，或把第二封當作主要的使用指南
 
-// 模擬執行：只會在 Log 印出「會做什麼」，不真的動作
+// 模擬執行：只會在 Log 印出「會做什麼」，不真的動作、不寄信
 function dryRunShareStudentFolders() {
   _shareStudentFolders({ dryRun: true });
 }
 
-// 正式執行：真的分享
+// 正式執行：真的分享資料夾 + 寄驗證碼通知信
 function actuallyShareStudentFolders() {
   _shareStudentFolders({ dryRun: false });
 }
@@ -231,11 +260,17 @@ function actuallyShareStudentFolders() {
 function _shareStudentFolders(opts) {
   const dryRun = !!opts.dryRun;
   const root = DriveApp.getFolderById(ROOT_FOLDER_ID);
-  let ok = 0, skipped = 0, notFound = 0, failed = 0;
+  let ok = 0, skipped = 0, notFound = 0, failed = 0, noCode = 0;
 
-  Logger.log(dryRun ? "=== DRY RUN（只模擬，不分享）===" : "=== 正式執行分享 ===");
+  Logger.log(dryRun ? "=== DRY RUN（只模擬，不分享、不寄信）===" : "=== 正式執行分享 + 寄驗證碼通知 ===");
 
-  for (const s of STUDENT_EMAILS) {
+  for (const s of STUDENTS_PRIVATE) {
+    if (!s.code) {
+      Logger.log(`! ${s.name} 沒有驗證碼（code 空白），請先在 STUDENTS_PRIVATE 填上或跑 generateMissingCodes()`);
+      noCode++;
+      continue;
+    }
+
     const folder = searchFolder(root, normalizeName(s.name));
     if (!folder) {
       Logger.log(`✗ 找不到 ${s.name} 的資料夾`);
@@ -245,30 +280,121 @@ function _shareStudentFolders(opts) {
 
     const email = s.email.toLowerCase();
     const editors = folder.getEditors().map(u => String(u.getEmail()).toLowerCase());
-    if (editors.includes(email)) {
-      Logger.log(`- ${s.name}（${s.email}）已有編輯權限，跳過`);
-      skipped++;
+    const alreadyEditor = editors.includes(email);
+
+    const folderUrl = folder.getUrl();
+    const folderName = folder.getName();
+    const subject = SHARE_EMAIL_SUBJECT;
+    const body = SHARE_EMAIL_BODY
+      .replace(/{{name}}/g, s.name)
+      .replace(/{{code}}/g, s.code)
+      .replace(/{{folderUrl}}/g, folderUrl)
+      .replace(/{{folderName}}/g, folderName);
+
+    if (dryRun) {
+      Logger.log(
+        `[DRY RUN] ${s.name} <${s.email}>\n` +
+        `  - ${alreadyEditor ? "（已是編輯者，不會重加）" : "將加入編輯者"}\n` +
+        `  - 將寄信（主旨：「${subject}」，含驗證碼 ${s.code}）`
+      );
+      ok++;
       continue;
     }
 
-    if (dryRun) {
-      Logger.log(`[DRY RUN] 將把「${folder.getName()}」分享給 ${s.name} <${s.email}>（編輯者 + 通知信）`);
-      ok++;
-    } else {
-      try {
+    try {
+      if (!alreadyEditor) {
         folder.addEditor(s.email);
-        Logger.log(`✓ 已把「${folder.getName()}」分享給 ${s.name} <${s.email}>`);
-        ok++;
-        Utilities.sleep(200);  // 避免觸發 API 節流
-      } catch (err) {
-        Logger.log(`✗ 分享給 ${s.name} 失敗：${err.message}`);
-        failed++;
+      } else {
+        Logger.log(`- ${s.name} 已有編輯權限，不重複加`);
+        skipped++;
       }
+      MailApp.sendEmail({
+        to: s.email,
+        subject: subject,
+        body: body,
+      });
+      Logger.log(`✓ ${s.name} 完成（分享 + 寄驗證碼信）`);
+      ok++;
+      Utilities.sleep(300);  // 避免觸發 API 節流
+    } catch (err) {
+      Logger.log(`✗ ${s.name} 失敗：${err.message}`);
+      failed++;
     }
   }
 
   Logger.log(`\n====================`);
-  Logger.log(`${dryRun ? "[模擬]" : "[實際]"} 完成：成功 ${ok}，跳過 ${skipped}，找不到 ${notFound}，失敗 ${failed}`);
+  Logger.log(
+    `${dryRun ? "[模擬]" : "[實際]"} 完成：處理 ${ok}，跳過 ${skipped}，找不到資料夾 ${notFound}，沒有驗證碼 ${noCode}，失敗 ${failed}`
+  );
+}
+
+
+// ============== 驗證碼工具 ==============
+
+// 一次性產驗證碼：跑這個會幫 STUDENTS_PRIVATE 裡所有 code 為空的同學產一組新的 4 碼數字，
+// 然後把整個陣列印在 Log 裡，你複製貼回上面覆蓋 STUDENTS_PRIVATE 即可。
+// 不會自動寫回程式碼（Apps Script 不允許腳本改自己），所以請記得貼回去再存檔。
+function generateMissingCodes() {
+  const used = new Set(
+    STUDENTS_PRIVATE.filter(s => s.code).map(s => String(s.code))
+  );
+  const out = STUDENTS_PRIVATE.map(s => {
+    if (s.code) return { name: s.name, email: s.email, code: String(s.code) };
+    let c;
+    do { c = randomCode(4); } while (used.has(c));
+    used.add(c);
+    return { name: s.name, email: s.email, code: c };
+  });
+  const lines = out.map(s =>
+    `  { name: "${s.name}", email: "${s.email}", code: "${s.code}" },`
+  );
+  Logger.log("=== 複製以下整塊，貼回覆蓋 STUDENTS_PRIVATE ===\n" +
+    "const STUDENTS_PRIVATE = [\n" + lines.join("\n") + "\n];");
+}
+
+function randomCode(len) {
+  // 4 位數字（0000–9999）；允許前導 0，學生輸入時也不會自動消失
+  let s = "";
+  for (let i = 0; i < len; i++) {
+    s += String(Math.floor(Math.random() * 10));
+  }
+  return s;
+}
+
+// 驗證碼比對：不分大小寫，前後空白自動去掉
+function normalizeCode(s) {
+  return String(s == null ? "" : s).trim().toLowerCase();
+}
+
+function findStudentPrivate(name) {
+  const target = normalizeName(name);
+  for (const s of STUDENTS_PRIVATE) {
+    if (normalizeName(s.name) === target) return s;
+  }
+  return null;
+}
+
+function handleVerifyCode(body) {
+  const name = String(body.name || "").slice(0, 64);
+  const code = String(body.code || "").slice(0, 64);
+
+  if (!name) return jsonOut({ ok: false, error: "missing name" });
+
+  const record = findStudentPrivate(name);
+  if (!record) {
+    // 名單上沒這個人 → 回報不存在（不要洩漏有沒有 code，一律 valid:false）
+    return jsonOut({ ok: true, valid: false, reason: "unknown" });
+  }
+  if (!record.code) {
+    // 老師還沒設 code → 放行（相容性：此時相當於沒啟用驗證）
+    return jsonOut({ ok: true, valid: true, reason: "no-code-set" });
+  }
+  if (normalizeCode(code) === normalizeCode(record.code)) {
+    return jsonOut({ ok: true, valid: true });
+  }
+  // 錯了：停一下，稍微拖慢暴力破解
+  Utilities.sleep(800);
+  return jsonOut({ ok: true, valid: false, reason: "mismatch" });
 }
 
 
@@ -303,7 +429,15 @@ function doGet(e) {
     if (cSheet) ensureCommentsRoleHeader(cSheet);
     const reactions = readShowcaseSheet(ss, REACTIONS_SHEET, REACTIONS_HEADERS);
     const comments = readShowcaseSheet(ss, COMMENTS_SHEET, COMMENTS_HEADERS);
-    return jsonOut({ ok: true, reactions: reactions, comments: comments });
+    // codesEnabled：若 STUDENTS_PRIVATE 裡至少有一位設了 code，就回 true。
+    // 前端會用這個旗標決定要不要跳出驗證碼輸入畫面。
+    const codesEnabled = STUDENTS_PRIVATE.some(s => s && s.code);
+    return jsonOut({
+      ok: true,
+      reactions: reactions,
+      comments: comments,
+      codesEnabled: codesEnabled,
+    });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err && err.message || err) });
   }
@@ -318,6 +452,7 @@ function doPost(e) {
 
     if (action === "toggleReaction") return handleToggleReaction(body);
     if (action === "addComment") return handleAddComment(body);
+    if (action === "verifyCode") return handleVerifyCode(body);
 
     return jsonOut({ ok: false, error: "unknown action" });
   } catch (err) {

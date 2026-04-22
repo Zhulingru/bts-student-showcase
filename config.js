@@ -74,6 +74,11 @@ const CONFIG = {
   // 學生名單（順序會決定網格排列順序）
   // name 必須和 Google 表單「學生姓名」下拉選單的選項完全一致（一字不差）
   // class 必須對應上方 classes 的 id（"A" 或 "B"）
+  //
+  // 注意：每位學生的「驗證碼（code）」與「email」不放在這裡，
+  //      而是在 apps-script.gs 的 STUDENTS_PRIVATE 裡（那份不會進 GitHub）。
+  //      好處：驗證碼是個資，留在 Apps Script 就跟分享雲端資料夾的函式同一個地方，
+  //      你執行分享函式時可以直接寄信給學生，連同資料夾連結 + 驗證碼一起給。
   students: [
     // ===== A 班（13 位）=====
     { name: "黃羿晴", class: "A" },

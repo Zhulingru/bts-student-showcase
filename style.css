@@ -940,6 +940,114 @@ main {
   margin-top: 2px;
 }
 
+/* ===== Identity picker · Student code step ===== */
+.identity-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.identity-lock {
+  font-size: 10px;
+  opacity: 0.55;
+  transform: translateY(-0.5px);
+}
+.identity-option.active .identity-lock { opacity: 0.9; }
+
+.identity-code-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.identity-code-back {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--graphite);
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.identity-code-back:hover { color: var(--ink); }
+
+.identity-code-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.identity-code-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--ink);
+}
+.identity-code-title strong {
+  font-weight: 600;
+}
+.identity-code-sub {
+  font-size: 13px;
+  color: var(--graphite);
+  line-height: 1.5;
+}
+.identity-code-sub strong { color: var(--ink); font-weight: 600; }
+
+.identity-code-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-top: 4px;
+}
+
+.identity-code-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  padding: 10px 14px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.identity-code-input:focus { border-color: var(--ink); }
+.identity-code-input.has-error {
+  border-color: #b91c1c;
+  box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.12);
+}
+
+.identity-code-submit {
+  flex: 0 0 auto;
+  font-family: var(--font-display);
+  font-size: 14px;
+  padding: 10px 20px;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.identity-code-submit:hover { opacity: 0.85; }
+
+.identity-code-err {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.identity-code-hint {
+  font-size: 12px;
+  color: var(--graphite);
+  line-height: 1.6;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+
 /* ===== Role badge on comments ===== */
 .role-badge {
   display: inline-flex;

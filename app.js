@@ -790,6 +790,7 @@
       if (!json.ok) throw new Error(json.error || "載入失敗");
       socialState.reactions = Array.isArray(json.reactions) ? json.reactions : [];
       socialState.comments = Array.isArray(json.comments) ? json.comments : [];
+      codesEnabled = !!json.codesEnabled;
       // Feed 卡片的小計數也要刷新
       renderFeed();
       // 若有彈窗開著，局部更新反應與留言
@@ -932,6 +933,32 @@
   // 所有學生姓名（normalized），給訪客表單做重名檢查
   const STUDENT_NAME_SET = new Set((CONFIG.students || []).map(s => normalizeName(s.name)));
 
+  // ---------- 學生驗證碼（後端驗證）----------
+  // 驗證碼本身不在前端，而是在 Apps Script 的 STUDENTS_PRIVATE 裡（私密、不進 GitHub）。
+  // 前端只做兩件事：
+  //   1. 從 doGet 回傳的 codesEnabled 旗標得知是否要跳驗證碼步驟
+  //   2. 把學生輸入的碼 POST 給 Apps Script，由後端回報 valid: true / false
+  // 若 Apps Script 未設定（socialEnabled = false），就沒有互動功能也不需要驗證。
+  // 預設值跟著 socialEnabled 走；待 fetchSocial() 第一次回來後，會依後端實際狀態再更新。
+  let codesEnabled = socialEnabled;
+
+  async function verifyStudentCodeRemote(studentName, input) {
+    if (!socialEnabled) return { ok: true, valid: true };
+    try {
+      const res = await fetch(CONFIG.appsScriptUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "verifyCode", name: studentName, code: input }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "驗證失敗");
+      return { ok: true, valid: !!json.valid, reason: json.reason };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  }
+
   function renderGuestFormHtml() {
     if (!GUEST_MODE_ENABLED || GUEST_ROLES.length === 0) return "";
     const activeRole = identity && identity.role && identity.role !== "student"
@@ -971,13 +998,14 @@
     `;
   }
 
-  function openIdentityPicker() {
+  function renderIdentityPickerList() {
     const studentHtml = CLASSES.map(cls => {
       const students = (CONFIG.students || []).filter(s => s.class === cls.id);
       if (students.length === 0) return "";
       const options = students.map(s => {
         const isActive = identity && identity.role === "student" && identity.userName === s.name;
-        return `<button type="button" class="identity-option ${isActive ? "active" : ""}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`;
+        const locked = codesEnabled ? `<span class="identity-lock" aria-hidden="true">🔒</span>` : "";
+        return `<button type="button" class="identity-option ${isActive ? "active" : ""}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}${locked}</button>`;
       }).join("");
       return `
         <div class="identity-group">
@@ -991,8 +1019,103 @@
     }).join("");
 
     identityListEl.innerHTML = studentHtml + renderGuestFormHtml();
+  }
+
+  function renderIdentityCodeStep(studentName) {
+    identityListEl.innerHTML = `
+      <div class="identity-code-step">
+        <button type="button" class="identity-code-back" id="identity-code-back">← 換一位</button>
+        <div class="identity-code-heading">
+          <div class="identity-code-title">嗨，<strong>${escapeHtml(studentName)}</strong> 同學</div>
+          <div class="identity-code-sub">請輸入老師私訊給你的 <strong>驗證碼</strong>，確認這就是你本人</div>
+        </div>
+        <div class="identity-code-row">
+          <input type="text"
+                 id="identity-code-input"
+                 class="identity-code-input"
+                 autocomplete="off"
+                 autocapitalize="off"
+                 spellcheck="false"
+                 inputmode="numeric"
+                 pattern="[0-9]*"
+                 maxlength="4"
+                 placeholder="4 位數字"
+                 data-name="${escapeHtml(studentName)}" />
+          <button type="button" id="identity-code-submit" class="identity-code-submit">確認</button>
+        </div>
+        <div id="identity-code-err" class="identity-code-err" hidden></div>
+        <div class="identity-code-hint">忘記或還沒收到？請聯絡老師，驗證碼會和你的雲端資料夾連結一起分享給你。</div>
+      </div>
+    `;
+    const input = document.getElementById("identity-code-input");
+    if (input) setTimeout(() => input.focus(), 30);
+  }
+
+  function openIdentityPicker() {
+    renderIdentityPickerList();
     identityModalEl.hidden = false;
     document.body.style.overflow = "hidden";
+  }
+
+  function showCodeError(msg) {
+    const el = document.getElementById("identity-code-err");
+    if (!el) return;
+    el.textContent = msg;
+    el.hidden = false;
+    const input = document.getElementById("identity-code-input");
+    if (input) {
+      input.classList.add("has-error");
+      input.focus();
+      input.select();
+    }
+  }
+
+  function clearCodeError() {
+    const el = document.getElementById("identity-code-err");
+    if (el) { el.hidden = true; el.textContent = ""; }
+    const input = document.getElementById("identity-code-input");
+    if (input) input.classList.remove("has-error");
+  }
+
+  async function submitStudentCode() {
+    const input = document.getElementById("identity-code-input");
+    const submitBtn = document.getElementById("identity-code-submit");
+    if (!input) return;
+    const studentName = input.dataset.name;
+    const value = input.value || "";
+    if (!value.trim()) {
+      showCodeError("請輸入驗證碼");
+      return;
+    }
+
+    clearCodeError();
+    input.disabled = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "驗證中…";
+    }
+
+    const result = await verifyStudentCodeRemote(studentName, value);
+
+    input.disabled = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "確認";
+    }
+
+    if (!result.ok) {
+      showCodeError(`驗證服務連不上：${result.error}。請稍後再試。`);
+      return;
+    }
+    if (!result.valid) {
+      showCodeError("驗證碼不正確，再試一次（或確認是不是其他同學的碼）");
+      return;
+    }
+
+    saveIdentity(studentName, "student");
+    refreshIdentityChip();
+    closeIdentityPicker();
+    if (openedStudentName) renderStudentModalBody(openedStudentName);
   }
 
   function showGuestError(msg) {
@@ -1048,18 +1171,33 @@
       el.addEventListener("click", closeIdentityPicker);
     });
     identityListEl.addEventListener("click", (e) => {
-      // 1) 學生選單：直接存成 student 身分
+      // 1) 學生選單：進入驗證碼步驟（若後端未啟用驗證則直接通過）
       const opt = e.target.closest(".identity-option");
       if (opt) {
-        saveIdentity(opt.dataset.name, "student");
-        refreshIdentityChip();
-        closeIdentityPicker();
-        if (openedStudentName) {
-          renderStudentModalBody(openedStudentName);
+        const name = opt.dataset.name;
+        if (!codesEnabled) {
+          saveIdentity(name, "student");
+          refreshIdentityChip();
+          closeIdentityPicker();
+          if (openedStudentName) renderStudentModalBody(openedStudentName);
+        } else {
+          renderIdentityCodeStep(name);
         }
         return;
       }
-      // 2) 訪客：切換角色
+      // 2) 驗證碼步驟：返回名單
+      const backBtn = e.target.closest("#identity-code-back");
+      if (backBtn) {
+        renderIdentityPickerList();
+        return;
+      }
+      // 3) 驗證碼步驟：送出
+      const codeSubmit = e.target.closest("#identity-code-submit");
+      if (codeSubmit) {
+        submitStudentCode();
+        return;
+      }
+      // 4) 訪客：切換角色
       const roleBtn = e.target.closest(".identity-role");
       if (roleBtn) {
         identityListEl.querySelectorAll(".identity-role").forEach(b => b.classList.remove("active"));
@@ -1067,7 +1205,7 @@
         clearGuestError();
         return;
       }
-      // 3) 訪客：送出暱稱
+      // 5) 訪客：送出暱稱
       const submit = e.target.closest("#identity-nick-submit");
       if (submit) {
         submitGuestForm();
@@ -1076,11 +1214,16 @@
     });
     identityListEl.addEventListener("input", (e) => {
       if (e.target.id === "identity-nick-input") clearGuestError();
+      if (e.target.id === "identity-code-input") clearCodeError();
     });
     identityListEl.addEventListener("keydown", (e) => {
       if (e.target.id === "identity-nick-input" && e.key === "Enter") {
         e.preventDefault();
         submitGuestForm();
+      }
+      if (e.target.id === "identity-code-input" && e.key === "Enter") {
+        e.preventDefault();
+        submitStudentCode();
       }
     });
     document.addEventListener("keydown", (e) => {
