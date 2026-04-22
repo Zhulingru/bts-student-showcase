@@ -34,7 +34,7 @@ const CONFIG = {
   // ─── 反應與留言（選用）──────────────────────────────────
   // 留空的話，emoji 反應與留言功能會自動隱藏，其他功能照常運作。
   // 啟用方式請見 apps-script.gs 檔案裡的說明，以及 README「第四部分」。
-  appsScriptUrl: "",
+  appsScriptUrl: "https://script.google.com/macros/s/AKfycbz35Jp3XjMnvgfFj3SFE-XTzoNNXEzDYwYKdpT5Uu-OEo4FxOC4wmlBtLxwHxsXufPf/exec",
 
   // 可用的 emoji 反應（順序就是顯示順序，想加減自由改）
   reactionEmojis: ["👍", "❤️", "🔥", "😂", "👀"],
