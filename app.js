@@ -698,21 +698,34 @@
   }
 
   // ---------- 反應 / 留言：後端互動 ----------
+  // 送出中的 POST 計數。大於 0 時，輪詢的 fetchSocial 會暫停一輪，
+  // 避免把還沒寫進試算表的樂觀更新給洗掉。
+  let pendingPosts = 0;
+
   async function postToAppsScript(body) {
-    // Content-Type 用 text/plain 可避免 CORS preflight（Apps Script 端 e.postData.contents 仍拿得到 JSON 字串）
-    const res = await fetch(CONFIG.appsScriptUrl, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || "失敗");
-    return json;
+    pendingPosts++;
+    try {
+      // Content-Type 用 text/plain 可避免 CORS preflight（Apps Script 端 e.postData.contents 仍拿得到 JSON 字串）
+      const res = await fetch(CONFIG.appsScriptUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "失敗");
+      return json;
+    } finally {
+      pendingPosts--;
+    }
   }
 
   async function fetchSocial() {
     if (!socialEnabled) return;
+    if (pendingPosts > 0) {
+      // 有寫入動作正在進行，避免把樂觀更新洗掉，這一輪先跳過
+      return;
+    }
     try {
       const res = await fetch(CONFIG.appsScriptUrl, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -737,26 +750,26 @@
     const emoji = btn.dataset.emoji;
     if (!entryId || !emoji) return;
 
-    // 樂觀更新
+    // 樂觀更新（不 disable 按鈕，學生可以連續快點）
     const wasActive = btn.classList.contains("active");
     const countEl = btn.querySelector(".reaction-count");
     const prevCount = parseInt(countEl.textContent, 10) || 0;
     btn.classList.toggle("active", !wasActive);
     countEl.textContent = String(wasActive ? Math.max(0, prevCount - 1) : prevCount + 1);
-    btn.disabled = true;
 
     // 同步本地 state
+    const optimisticReaction = {
+      timestamp: new Date().toISOString(),
+      entryId, emoji,
+      userId: identity.userId,
+      userName: identity.userName,
+    };
     if (wasActive) {
       socialState.reactions = socialState.reactions.filter(r =>
         !(r.entryId === entryId && r.emoji === emoji && r.userId === identity.userId)
       );
     } else {
-      socialState.reactions.push({
-        timestamp: new Date().toISOString(),
-        entryId, emoji,
-        userId: identity.userId,
-        userName: identity.userName,
-      });
+      socialState.reactions.push(optimisticReaction);
     }
 
     try {
@@ -769,13 +782,18 @@
       // 成功後稍後再拉一次，把別人的新動作也帶回來
       setTimeout(fetchSocial, 600);
     } catch (err) {
-      console.error(err);
+      console.warn("[reaction] 送出失敗，UI 已回復：", err.message || err);
       // 回復 UI
       btn.classList.toggle("active", wasActive);
       countEl.textContent = String(prevCount);
-      alert("送出失敗：" + (err.message || err));
-    } finally {
-      btn.disabled = !identity;
+      // 回復本地 state
+      if (wasActive) {
+        socialState.reactions.push(optimisticReaction);
+      } else {
+        socialState.reactions = socialState.reactions.filter(r =>
+          !(r.entryId === entryId && r.emoji === emoji && r.userId === identity.userId)
+        );
+      }
     }
   }
 
@@ -813,9 +831,8 @@
       updateModalSocialOnly();
       setTimeout(fetchSocial, 600);
     } catch (err) {
-      console.error(err);
+      console.warn("[comment] 送出失敗：", err.message || err);
       textarea.value = origText;
-      alert("送出失敗：" + (err.message || err));
     } finally {
       button.disabled = false;
       textarea.disabled = false;

@@ -28,8 +28,6 @@ const REACTIONS_HEADERS = ["timestamp", "entryId", "emoji", "userId", "userName"
 const COMMENTS_HEADERS = ["timestamp", "entryId", "userId", "userName", "text"];
 
 const MAX_COMMENT_LENGTH = 200;
-const MIN_POST_INTERVAL_MS = 800; // 同一 userId 兩次寫入之間的最小間隔
-const lastPostByUser = {}; // 記憶體中的簡易節流（每次冷啟會清空，可接受）
 
 // ---------- GET：供前端讀取反應與留言清單 ----------
 function doGet(e) {
@@ -50,16 +48,6 @@ function doPost(e) {
     const action = body.action;
 
     if (!action) return jsonOut({ ok: false, error: "missing action" });
-
-    // 簡易節流
-    const uid = String(body.userId || "").slice(0, 64);
-    if (uid) {
-      const now = Date.now();
-      if (lastPostByUser[uid] && now - lastPostByUser[uid] < MIN_POST_INTERVAL_MS) {
-        return jsonOut({ ok: false, error: "too fast" });
-      }
-      lastPostByUser[uid] = now;
-    }
 
     if (action === "toggleReaction") return handleToggleReaction(body);
     if (action === "addComment") return handleAddComment(body);
