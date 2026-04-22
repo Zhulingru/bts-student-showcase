@@ -20,6 +20,11 @@
         <span class="brand-sub">Student Showcase · 2026</span>
       </div>
       <div class="header-actions">
+        <button id="identity-btn" class="btn btn-ghost identity-chip" type="button" hidden>
+          <span class="identity-label">我是</span>
+          <span class="identity-name" id="identity-name">選擇身分</span>
+          <span class="identity-caret">▾</span>
+        </button>
         <a id="upload-btn" class="btn btn-primary" href="#" target="_blank" rel="noopener">
           新增作品
         </a>
@@ -71,6 +76,21 @@
       </div>
     </section>
   </main>
+
+  <!-- 身分選擇器 -->
+  <div id="identity-modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-identity></div>
+    <div class="modal-panel identity-panel" role="dialog" aria-modal="true" aria-labelledby="identity-title">
+      <div class="modal-header">
+        <h3 id="identity-title">選擇你的身分</h3>
+        <button class="modal-close" data-close-identity aria-label="關閉">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="identity-hint">選了才能按 emoji 或留言。下次打開會自動記住你的選擇。</p>
+        <div id="identity-list"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- 作品詳情 -->
   <div id="modal" class="modal" hidden>

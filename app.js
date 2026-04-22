@@ -27,6 +27,78 @@
     return CLASS_BY_ID.get(classId) || { id: classId, label: classId || "未分班", color: "#8a93a6" };
   }
 
+  // ---------- 身分管理（localStorage，弱實名）----------
+  const IDENTITY_STORAGE_KEY = "bts-showcase-identity-v1";
+  let identity = loadIdentity();
+
+  function loadIdentity() {
+    try {
+      const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !obj.userId || !obj.userName) return null;
+      return obj;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveIdentity(name) {
+    const existing = loadIdentity();
+    const next = {
+      userId: (existing && existing.userId) || generateUuid(),
+      userName: name,
+    };
+    localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(next));
+    identity = next;
+    return next;
+  }
+
+  function generateUuid() {
+    if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+    return "u-" + Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
+  }
+
+  // ---------- Entry ID（跨頁載入穩定）----------
+  function entryIdFor(entry) {
+    if (!entry) return "";
+    const t = entry.timestamp instanceof Date ? entry.timestamp.getTime() : 0;
+    return `${entry.student}@${t}`;
+  }
+
+  function cssEscape(s) {
+    if (window.CSS && typeof CSS.escape === "function") return CSS.escape(String(s));
+    return String(s).replace(/([^\w-])/g, "\\$1");
+  }
+
+  // ---------- 社交狀態（反應 + 留言）----------
+  const socialEnabled = Boolean(CONFIG.appsScriptUrl && !CONFIG.appsScriptUrl.includes("貼上"));
+  let socialState = { reactions: [], comments: [] };
+  let openedStudentName = null;
+
+  function reactionCountsFor(entryId) {
+    const counts = {};
+    for (const e of CONFIG.reactionEmojis || []) counts[e] = 0;
+    for (const r of socialState.reactions) {
+      if (r.entryId !== entryId) continue;
+      counts[r.emoji] = (counts[r.emoji] || 0) + 1;
+    }
+    return counts;
+  }
+
+  function userHasReacted(entryId, emoji) {
+    if (!identity) return false;
+    return socialState.reactions.some(r =>
+      r.entryId === entryId && r.emoji === emoji && r.userId === identity.userId
+    );
+  }
+
+  function commentsFor(entryId) {
+    return socialState.comments
+      .filter(c => c.entryId === entryId)
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+
   // ---------- 初始化畫面文字 ----------
   document.getElementById("site-title").textContent = CONFIG.siteTitle;
   document.getElementById("site-subtitle").textContent = CONFIG.siteSubtitle;
@@ -42,6 +114,10 @@
   const modalEl = document.getElementById("modal");
   const modalTitleEl = document.getElementById("modal-title");
   const modalBodyEl = document.getElementById("modal-body");
+  const identityBtn = document.getElementById("identity-btn");
+  const identityNameEl = document.getElementById("identity-name");
+  const identityModalEl = document.getElementById("identity-modal");
+  const identityListEl = document.getElementById("identity-list");
 
   let allEntries = [];
   let entriesByStudent = new Map();
@@ -361,6 +437,7 @@
       const classBadge = entry.classId
         ? `<span class="class-badge" style="background:${cls.color}">${escapeHtml(entry.classId)}</span>`
         : "";
+      const socialLine = socialEnabled ? renderFeedSocialLine(entryIdFor(entry)) : "";
       return `
       <article class="feed-card" data-student="${escapeHtml(entry.student)}">
         <div class="media">
@@ -375,6 +452,7 @@
           </div>
           <div class="title">${escapeHtml(entry.title)}</div>
           <div class="timestamp">${formatTime(entry.timestamp)}</div>
+          ${socialLine}
         </div>
       </article>
     `;
@@ -438,6 +516,13 @@
 
   // ---------- 學生詳情彈窗 ----------
   function openStudentModal(studentName) {
+    openedStudentName = studentName;
+    renderStudentModalBody(studentName);
+    modalEl.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+
+  function renderStudentModalBody(studentName) {
     const key = normalizeName(studentName);
     const entries = entriesByStudent.get(key) || [];
     const classId = STUDENT_TO_CLASS.get(key);
@@ -452,9 +537,6 @@
     } else {
       modalBodyEl.innerHTML = entries.map(entry => renderEntryDetail(entry)).join("");
     }
-
-    modalEl.hidden = false;
-    document.body.style.overflow = "hidden";
   }
 
   function renderEntryDetail(entry) {
@@ -483,6 +565,9 @@
       links.push(`<a href="${escapeHtml(entry.linkUrl)}" target="_blank" rel="noopener">外部連結 ↗</a>`);
     }
 
+    const reactionsHtml = socialEnabled ? renderReactionsBar(entry) : "";
+    const commentsHtml = socialEnabled ? renderCommentsSection(entry) : "";
+
     return `
       <div class="entry">
         <div class="entry-media">${mediaBlock}</div>
@@ -494,14 +579,331 @@
             <span>${formatTime(entry.timestamp)}</span>
             ${links.join("")}
           </div>
+          ${reactionsHtml}
+          ${commentsHtml}
         </div>
       </div>
     `;
   }
 
+  // ---------- 反應 / 留言：渲染 ----------
+  function renderFeedSocialLine(entryId) {
+    const counts = reactionCountsFor(entryId);
+    const commentCount = commentsFor(entryId).length;
+    const top = Object.entries(counts)
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    if (top.length === 0 && commentCount === 0) {
+      return `<div class="social"></div>`;
+    }
+    const parts = top.map(([emoji, n]) => `<span>${emoji} ${n}</span>`);
+    if (commentCount > 0) parts.push(`<span>💬 ${commentCount}</span>`);
+    return `<div class="social">${parts.join("")}</div>`;
+  }
+
+  function renderReactionsBar(entry) {
+    const entryId = entryIdFor(entry);
+    const counts = reactionCountsFor(entryId);
+    const emojis = CONFIG.reactionEmojis || [];
+    const disabled = !identity;
+    const title = disabled ? "title=\"請先從右上角『選擇身分』\"" : "";
+
+    return `
+      <div class="reactions-bar" data-entry-id="${escapeHtml(entryId)}">
+        ${emojis.map(emoji => {
+          const count = counts[emoji] || 0;
+          const active = userHasReacted(entryId, emoji);
+          return `
+            <button type="button"
+                    class="reaction-btn ${active ? "active" : ""}"
+                    data-emoji="${escapeHtml(emoji)}"
+                    ${disabled ? "disabled" : ""} ${title}>
+              <span class="reaction-emoji">${emoji}</span>
+              <span class="reaction-count">${count}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderCommentsSection(entry) {
+    const entryId = entryIdFor(entry);
+    const list = commentsFor(entryId);
+    const disabled = !identity;
+
+    return `
+      <div class="comments-section" data-entry-id="${escapeHtml(entryId)}">
+        <div class="comments-heading">
+          <span class="label">留言</span>
+          <span class="count">${list.length} 則</span>
+        </div>
+        <div class="comment-list">${renderCommentListItems(list)}</div>
+        <form class="comment-form" data-entry-id="${escapeHtml(entryId)}">
+          <textarea
+            placeholder="${disabled ? "請先從右上角「選擇身分」" : "分享你的想法…（最多 200 字）"}"
+            maxlength="200"
+            rows="1"
+            ${disabled ? "disabled" : ""}></textarea>
+          <button type="submit" ${disabled ? "disabled" : ""}>送出</button>
+        </form>
+      </div>
+    `;
+  }
+
+  function renderCommentListItems(list) {
+    if (list.length === 0) {
+      return `<div class="comment-empty">還沒有留言 · 第一個來留言吧</div>`;
+    }
+    return list.map(c => `
+      <div class="comment">
+        <div class="comment-meta">
+          <span class="author">${escapeHtml(c.userName || "匿名")}</span>
+          <span class="time">${formatTime(new Date(c.timestamp))}</span>
+        </div>
+        <div class="comment-text">${escapeHtml(c.text || "")}</div>
+      </div>
+    `).join("");
+  }
+
+  // 只更新 modal 裡的社交區塊（不動整個 body，避免丟失輸入中的文字與焦點）
+  function updateModalSocialOnly() {
+    if (!openedStudentName) return;
+    const entries = entriesByStudent.get(normalizeName(openedStudentName)) || [];
+    for (const entry of entries) {
+      const id = entryIdFor(entry);
+      const bar = modalBodyEl.querySelector(`.reactions-bar[data-entry-id="${cssEscape(id)}"]`);
+      if (bar) {
+        const counts = reactionCountsFor(id);
+        (CONFIG.reactionEmojis || []).forEach(emoji => {
+          const btn = bar.querySelector(`.reaction-btn[data-emoji="${cssEscape(emoji)}"]`);
+          if (!btn) return;
+          const countEl = btn.querySelector(".reaction-count");
+          if (countEl) countEl.textContent = counts[emoji] || 0;
+          btn.classList.toggle("active", userHasReacted(id, emoji));
+          btn.disabled = !identity;
+        });
+      }
+      const section = modalBodyEl.querySelector(`.comments-section[data-entry-id="${cssEscape(id)}"]`);
+      if (section) {
+        const list = commentsFor(id);
+        const countEl = section.querySelector(".comments-heading .count");
+        if (countEl) countEl.textContent = `${list.length} 則`;
+        const listEl = section.querySelector(".comment-list");
+        if (listEl) listEl.innerHTML = renderCommentListItems(list);
+      }
+    }
+  }
+
+  // ---------- 反應 / 留言：後端互動 ----------
+  async function postToAppsScript(body) {
+    // Content-Type 用 text/plain 可避免 CORS preflight（Apps Script 端 e.postData.contents 仍拿得到 JSON 字串）
+    const res = await fetch(CONFIG.appsScriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || "失敗");
+    return json;
+  }
+
+  async function fetchSocial() {
+    if (!socialEnabled) return;
+    try {
+      const res = await fetch(CONFIG.appsScriptUrl, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "載入失敗");
+      socialState.reactions = Array.isArray(json.reactions) ? json.reactions : [];
+      socialState.comments = Array.isArray(json.comments) ? json.comments : [];
+      // Feed 卡片的小計數也要刷新
+      renderFeed();
+      // 若有彈窗開著，局部更新反應與留言
+      updateModalSocialOnly();
+    } catch (err) {
+      console.warn("[social] 載入失敗：", err.message || err);
+    }
+  }
+
+  async function handleReactionClick(btn) {
+    if (!identity) { openIdentityPicker(); return; }
+    const bar = btn.closest(".reactions-bar");
+    if (!bar) return;
+    const entryId = bar.dataset.entryId;
+    const emoji = btn.dataset.emoji;
+    if (!entryId || !emoji) return;
+
+    // 樂觀更新
+    const wasActive = btn.classList.contains("active");
+    const countEl = btn.querySelector(".reaction-count");
+    const prevCount = parseInt(countEl.textContent, 10) || 0;
+    btn.classList.toggle("active", !wasActive);
+    countEl.textContent = String(wasActive ? Math.max(0, prevCount - 1) : prevCount + 1);
+    btn.disabled = true;
+
+    // 同步本地 state
+    if (wasActive) {
+      socialState.reactions = socialState.reactions.filter(r =>
+        !(r.entryId === entryId && r.emoji === emoji && r.userId === identity.userId)
+      );
+    } else {
+      socialState.reactions.push({
+        timestamp: new Date().toISOString(),
+        entryId, emoji,
+        userId: identity.userId,
+        userName: identity.userName,
+      });
+    }
+
+    try {
+      await postToAppsScript({
+        action: "toggleReaction",
+        entryId, emoji,
+        userId: identity.userId,
+        userName: identity.userName,
+      });
+      // 成功後稍後再拉一次，把別人的新動作也帶回來
+      setTimeout(fetchSocial, 600);
+    } catch (err) {
+      console.error(err);
+      // 回復 UI
+      btn.classList.toggle("active", wasActive);
+      countEl.textContent = String(prevCount);
+      alert("送出失敗：" + (err.message || err));
+    } finally {
+      btn.disabled = !identity;
+    }
+  }
+
+  async function handleCommentSubmit(form) {
+    if (!identity) { openIdentityPicker(); return; }
+    const textarea = form.querySelector("textarea");
+    const button = form.querySelector("button");
+    const entryId = form.dataset.entryId;
+    const text = (textarea.value || "").trim();
+    if (!text || !entryId) return;
+
+    const origText = textarea.value;
+    button.disabled = true;
+    textarea.disabled = true;
+
+    try {
+      await postToAppsScript({
+        action: "addComment",
+        entryId,
+        userId: identity.userId,
+        userName: identity.userName,
+        text,
+      });
+
+      // 樂觀加入本地 state
+      socialState.comments.push({
+        timestamp: new Date().toISOString(),
+        entryId,
+        userId: identity.userId,
+        userName: identity.userName,
+        text,
+      });
+
+      textarea.value = "";
+      updateModalSocialOnly();
+      setTimeout(fetchSocial, 600);
+    } catch (err) {
+      console.error(err);
+      textarea.value = origText;
+      alert("送出失敗：" + (err.message || err));
+    } finally {
+      button.disabled = false;
+      textarea.disabled = false;
+      textarea.focus();
+    }
+  }
+
+  // Event delegation：綁一次就好（modalBodyEl 本身不會被替換）
+  if (socialEnabled) {
+    modalBodyEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".reaction-btn");
+      if (btn && !btn.disabled) handleReactionClick(btn);
+    });
+    modalBodyEl.addEventListener("submit", (e) => {
+      const form = e.target.closest(".comment-form");
+      if (form) { e.preventDefault(); handleCommentSubmit(form); }
+    });
+  }
+
+  // ---------- 身分選擇器 ----------
+  function refreshIdentityChip() {
+    if (!socialEnabled) {
+      identityBtn.hidden = true;
+      return;
+    }
+    identityBtn.hidden = false;
+    if (identity && identity.userName) {
+      identityNameEl.textContent = identity.userName;
+      identityBtn.classList.remove("is-unset");
+    } else {
+      identityNameEl.textContent = "選擇身分";
+      identityBtn.classList.add("is-unset");
+    }
+  }
+
+  function openIdentityPicker() {
+    const html = CLASSES.map(cls => {
+      const students = (CONFIG.students || []).filter(s => s.class === cls.id);
+      if (students.length === 0) return "";
+      const options = students.map(s => {
+        const isActive = identity && identity.userName === s.name;
+        return `<button type="button" class="identity-option ${isActive ? "active" : ""}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`;
+      }).join("");
+      return `
+        <div class="identity-group">
+          <div class="identity-group-label">
+            <span class="dot" style="background:${cls.color}"></span>
+            ${escapeHtml(cls.label)}
+          </div>
+          <div class="identity-options">${options}</div>
+        </div>
+      `;
+    }).join("");
+    identityListEl.innerHTML = html;
+    identityModalEl.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeIdentityPicker() {
+    identityModalEl.hidden = true;
+    if (modalEl.hidden) document.body.style.overflow = "";
+  }
+
+  if (socialEnabled) {
+    identityBtn.addEventListener("click", openIdentityPicker);
+    identityModalEl.querySelectorAll("[data-close-identity]").forEach(el => {
+      el.addEventListener("click", closeIdentityPicker);
+    });
+    identityListEl.addEventListener("click", (e) => {
+      const opt = e.target.closest(".identity-option");
+      if (!opt) return;
+      saveIdentity(opt.dataset.name);
+      refreshIdentityChip();
+      closeIdentityPicker();
+      // 身分改變後，重新渲染 modal（按鈕 disable 狀態變化）與 feed（無影響）
+      if (openedStudentName) {
+        renderStudentModalBody(openedStudentName);
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !identityModalEl.hidden) closeIdentityPicker();
+    });
+  }
+
   function closeModal() {
     modalEl.hidden = true;
     document.body.style.overflow = "";
+    openedStudentName = null;
   }
 
   document.querySelectorAll("[data-close-modal]").forEach(el => {
@@ -555,8 +957,20 @@
     }
   }
 
-  document.getElementById("refresh-btn").addEventListener("click", load);
+  document.getElementById("refresh-btn").addEventListener("click", () => {
+    load();
+    fetchSocial();
+  });
+
+  // 初始化身分 chip 與社交功能
+  refreshIdentityChip();
 
   load();
   setInterval(load, Math.max(10, CONFIG.refreshIntervalSeconds) * 1000);
+
+  if (socialEnabled) {
+    fetchSocial();
+    const socialInterval = Math.max(5, CONFIG.socialRefreshIntervalSeconds || 10);
+    setInterval(fetchSocial, socialInterval * 1000);
+  }
 })();

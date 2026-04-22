@@ -31,6 +31,17 @@ const CONFIG = {
   // 自動刷新間隔（秒），建議 30 秒
   refreshIntervalSeconds: 30,
 
+  // ─── 反應與留言（選用）──────────────────────────────────
+  // 留空的話，emoji 反應與留言功能會自動隱藏，其他功能照常運作。
+  // 啟用方式請見 apps-script.gs 檔案裡的說明，以及 README「第四部分」。
+  appsScriptUrl: "",
+
+  // 可用的 emoji 反應（順序就是顯示順序，想加減自由改）
+  reactionEmojis: ["👍", "❤️", "🔥", "😂", "👀"],
+
+  // 反應與留言的刷新間隔（秒），比作品刷新快一點，讓互動更有臨場感
+  socialRefreshIntervalSeconds: 10,
+
   // 班級設定
   // label 是網站上顯示的文字，必須和 Google 表單「班級」欄位的選項完全一致
   // color 是班級主色，可以改成你喜歡的色碼
