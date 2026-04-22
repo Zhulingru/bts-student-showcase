@@ -1,47 +1,314 @@
 /**
  * ================================================================
- * BTS Student Showcase · Reactions & Comments Backend
+ * BTS Student Showcase · Apps Script（整合版，與實際部署同步）
  * ================================================================
  *
- * 把整個檔案的內容，複製到你「綁定同一份試算表」的 Apps Script 編輯器裡，
- * 然後：
- *   1. 點上方的「部署」→「新增部署作業」
- *   2. 類型選「網頁應用程式」
- *   3. 執行身分：「我」（老師自己）
- *   4. 存取權：「任何人」
- *   5. 部署完會拿到一個 https://script.google.com/macros/s/.../exec 的網址
- *   6. 把這個網址貼到 config.js 的 appsScriptUrl
+ * 本檔案整合三段功能：
+ *   1. 表單送出後，自動把檔案搬到對應學生的 Drive 資料夾並重新命名
+ *   2. 一次性把每個學生資料夾分享給對應 email（編輯權限）
+ *   3. Student Showcase 反應與留言後端（emoji + 留言 + 訪客模式 role 欄）
  *
- * 第一次會問你是否授權存取試算表，按同意即可。
+ * 前兩段是檔案管理，第三段是網站互動後端，互相獨立、不會干擾。
  *
- * 這個後端會自動在你的試算表裡建立兩個新分頁：
- *   - Reactions   （emoji 反應，每列一個反應事件）
- *   - Comments    （留言）
+ * 部署 Showcase 後端：
+ *   1. 「部署」→「新增部署作業」→ 類型「網頁應用程式」
+ *   2. 執行身分：「我」　存取權：「任何人」
+ *   3. 拿到的網址貼到 config.js 的 appsScriptUrl
  *
+ * ⚠️ 學生 email 對照表（STUDENT_EMAILS）為個資，請勿提交至 GitHub。
+ *    本檔案在 repo 中只放假資料示範，真正的 email 維持只在 Apps Script
+ *    編輯器內。
  * ================================================================
  */
+
+
+// ============== 設定區 ==============
+
+// 28 位學生共用的總資料夾 ID（從 Drive 網址 /folders/xxxxx 取出）
+const ROOT_FOLDER_ID = "1ifLLbfeurjSeVN6wK5NnJvRtwplbazwE";
+
+// 表單欄位名稱（必須和你表單題目一字不差，若不同請修改）
+const FIELD_STUDENT = "學生姓名";
+const FIELD_TITLE   = "標題";
+const FIELD_FILE    = "檔案上傳";
+
+
+// ============== 主流程：每次表單送出會自動執行 ==============
+
+function onFormSubmitAutoSort(e) {
+  try {
+    const nv = e.namedValues || {};
+    const studentName = getFirst(nv[FIELD_STUDENT]);
+    if (!studentName) { Logger.log("沒有學生姓名，略過"); return; }
+
+    const title    = getFirst(nv[FIELD_TITLE]) || "未命名";
+    const fileCell = getFirst(nv[FIELD_FILE])  || "";
+    const fileIds  = extractFileIds(fileCell);
+
+    if (fileIds.length === 0) {
+      Logger.log(`${studentName}：無檔案（可能只填連結），略過`);
+      return;
+    }
+
+    const studentFolder = findStudentFolder(normalizeName(studentName));
+    if (!studentFolder) {
+      Logger.log(`找不到 ${studentName} 的資料夾，檔案留在原處`);
+      return;
+    }
+
+    const dateStr = formatDateForFile(new Date());
+    fileIds.forEach((id, idx) => {
+      const file = DriveApp.getFileById(id);
+      const ext = getExt(file.getName());
+      const suffix = fileIds.length > 1 ? `_${idx + 1}` : "";
+      const newName = `${dateStr}_${sanitize(title)}${suffix}${ext}`;
+      file.setName(newName);
+      file.moveTo(studentFolder);
+    });
+
+    Logger.log(`✓ 已把 ${fileIds.length} 個檔案搬到 ${studentName} 資料夾`);
+  } catch (err) {
+    Logger.log("錯誤：" + err + "\n" + err.stack);
+  }
+}
+
+
+// ============== 一次性設定觸發器 ==============
+
+function setupTrigger() {
+  const all = ScriptApp.getProjectTriggers();
+  for (const t of all) {
+    if (t.getHandlerFunction() === "onFormSubmitAutoSort") {
+      ScriptApp.deleteTrigger(t);
+    }
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ScriptApp.newTrigger("onFormSubmitAutoSort")
+    .forSpreadsheet(ss)
+    .onFormSubmit()
+    .create();
+  Logger.log("✓ 觸發器已建立，之後每次表單送出會自動分類");
+}
+
+
+// ============== 補跑：把過去已經送出過的整理一次 ==============
+
+function backfillAll() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  let moved = 0, skipped = 0, notFound = 0;
+
+  for (const sheet of sheets) {
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) continue;
+    const headers = data[0].map(h => String(h).trim());
+    const idxStudent = headers.findIndex(h => h.includes(FIELD_STUDENT));
+    const idxTitle   = headers.findIndex(h => h.includes(FIELD_TITLE));
+    const idxFile    = headers.findIndex(h => h.includes(FIELD_FILE));
+    const idxTime    = headers.findIndex(h => h.includes("時間") || h.toLowerCase().includes("timestamp"));
+    if (idxStudent < 0 || idxFile < 0) continue;
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      const studentName = normalizeName(row[idxStudent]);
+      if (!studentName) continue;
+      const fileIds = extractFileIds(row[idxFile]);
+      if (fileIds.length === 0) continue;
+
+      const studentFolder = findStudentFolder(studentName);
+      if (!studentFolder) { notFound++; continue; }
+
+      const ts = row[idxTime] instanceof Date ? row[idxTime] : new Date();
+      const dateStr = formatDateForFile(ts);
+      const title = normalizeName(row[idxTitle]) || "未命名";
+
+      fileIds.forEach((id, idx) => {
+        try {
+          const file = DriveApp.getFileById(id);
+          const parents = file.getParents();
+          let alreadyIn = false;
+          while (parents.hasNext()) {
+            if (parents.next().getId() === studentFolder.getId()) { alreadyIn = true; break; }
+          }
+          if (alreadyIn) { skipped++; return; }
+          const ext = getExt(file.getName());
+          const suffix = fileIds.length > 1 ? `_${idx + 1}` : "";
+          file.setName(`${dateStr}_${sanitize(title)}${suffix}${ext}`);
+          file.moveTo(studentFolder);
+          moved++;
+        } catch (err) {
+          Logger.log(`檔案 ${id} 搬移失敗：${err}`);
+        }
+      });
+    }
+  }
+  Logger.log(`✓ 完成：搬移 ${moved}，已在正確位置 ${skipped}，找不到資料夾 ${notFound}`);
+}
+
+
+// ============== 工具函式（不用改） ==============
+
+function getFirst(arr) {
+  if (!arr) return "";
+  if (Array.isArray(arr)) return String(arr[0] || "").trim();
+  return String(arr).trim();
+}
+
+function normalizeName(s) {
+  return String(s || "").trim().replace(/\s+/g, " ");
+}
+
+function extractFileIds(text) {
+  if (!text) return [];
+  const parts = String(text).split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  const ids = [];
+  for (const p of parts) {
+    const m = p.match(/[-\w]{25,}/);
+    if (m) ids.push(m[0]);
+  }
+  return ids;
+}
+
+function findStudentFolder(name) {
+  const root = DriveApp.getFolderById(ROOT_FOLDER_ID);
+  return searchFolder(root, name);
+}
+
+function searchFolder(parent, targetName) {
+  const direct = parent.getFolders();
+  while (direct.hasNext()) {
+    const f = direct.next();
+    if (normalizeName(f.getName()) === targetName) return f;
+  }
+  const recurse = parent.getFolders();
+  while (recurse.hasNext()) {
+    const found = searchFolder(recurse.next(), targetName);
+    if (found) return found;
+  }
+  return null;
+}
+
+function formatDateForFile(d) {
+  if (!(d instanceof Date) || isNaN(d)) d = new Date();
+  const z = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}`;
+}
+
+function getExt(filename) {
+  const m = String(filename).match(/(\.[^.]+)$/);
+  return m ? m[1] : "";
+}
+
+function sanitize(s) {
+  return String(s).replace(/[\\/:*?"<>|]/g, "_").slice(0, 60);
+}
+
+
+// ============== 學生 Email 對照表（僅存於 Apps Script，不進 GitHub） ==============
+// ⚠️ 真正的 email 對照表只放在你 Apps Script 編輯器裡。
+// 這份 repo 內的版本只放假資料示範格式，請勿把真實 email 提交到 GitHub。
+
+const STUDENT_EMAILS = [
+  // 範例格式（實際資料放在 Apps Script 編輯器內）：
+  // { name: "王小明", email: "s000000_example@school.edu.tw" },
+];
+
+
+// ============== 分享資料夾腳本 ==============
+// 權限：編輯者（可看、可改、可刪）
+// 通知：會寄通知信給學生
+
+// 模擬執行：只會在 Log 印出「會做什麼」，不真的動作
+function dryRunShareStudentFolders() {
+  _shareStudentFolders({ dryRun: true });
+}
+
+// 正式執行：真的分享
+function actuallyShareStudentFolders() {
+  _shareStudentFolders({ dryRun: false });
+}
+
+function _shareStudentFolders(opts) {
+  const dryRun = !!opts.dryRun;
+  const root = DriveApp.getFolderById(ROOT_FOLDER_ID);
+  let ok = 0, skipped = 0, notFound = 0, failed = 0;
+
+  Logger.log(dryRun ? "=== DRY RUN（只模擬，不分享）===" : "=== 正式執行分享 ===");
+
+  for (const s of STUDENT_EMAILS) {
+    const folder = searchFolder(root, normalizeName(s.name));
+    if (!folder) {
+      Logger.log(`✗ 找不到 ${s.name} 的資料夾`);
+      notFound++;
+      continue;
+    }
+
+    const email = s.email.toLowerCase();
+    const editors = folder.getEditors().map(u => String(u.getEmail()).toLowerCase());
+    if (editors.includes(email)) {
+      Logger.log(`- ${s.name}（${s.email}）已有編輯權限，跳過`);
+      skipped++;
+      continue;
+    }
+
+    if (dryRun) {
+      Logger.log(`[DRY RUN] 將把「${folder.getName()}」分享給 ${s.name} <${s.email}>（編輯者 + 通知信）`);
+      ok++;
+    } else {
+      try {
+        folder.addEditor(s.email);
+        Logger.log(`✓ 已把「${folder.getName()}」分享給 ${s.name} <${s.email}>`);
+        ok++;
+        Utilities.sleep(200);  // 避免觸發 API 節流
+      } catch (err) {
+        Logger.log(`✗ 分享給 ${s.name} 失敗：${err.message}`);
+        failed++;
+      }
+    }
+  }
+
+  Logger.log(`\n====================`);
+  Logger.log(`${dryRun ? "[模擬]" : "[實際]"} 完成：成功 ${ok}，跳過 ${skipped}，找不到 ${notFound}，失敗 ${failed}`);
+}
+
+
+// ================================================================
+// 以下為 Student Showcase 反應與留言後端（BTS Showcase · Reactions & Comments）
+// 不影響上方的自動分檔、資料夾分享功能
+// 部署方式：右上「部署」→「新增部署作業」→ 類型「網頁應用程式」
+//          執行身分選「我」、存取權選「任何人」
+// ================================================================
 
 const REACTIONS_SHEET = "Reactions";
 const COMMENTS_SHEET = "Comments";
 
 const REACTIONS_HEADERS = ["timestamp", "entryId", "emoji", "userId", "userName"];
-const COMMENTS_HEADERS = ["timestamp", "entryId", "userId", "userName", "text"];
+// 留言表新增 role 欄位以支援訪客模式（student/guest/teacher/parent）
+// 舊有試算表若沒有 role 欄，程式會在首次 doPost / doGet 時自動補上表頭
+const COMMENTS_HEADERS = ["timestamp", "entryId", "userId", "userName", "text", "role"];
 
 const MAX_COMMENT_LENGTH = 200;
+const ALLOWED_ROLES = ["student", "guest", "teacher", "parent"];
 
-// ---------- GET：供前端讀取反應與留言清單 ----------
+function normalizeRole(r) {
+  const s = String(r || "student");
+  return ALLOWED_ROLES.indexOf(s) >= 0 ? s : "student";
+}
+
 function doGet(e) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const reactions = readSheet(ss, REACTIONS_SHEET, REACTIONS_HEADERS);
-    const comments = readSheet(ss, COMMENTS_SHEET, COMMENTS_HEADERS);
+    // 讀取前先補齊 Comments 的 role 表頭（舊試算表升級用）
+    const cSheet = ss.getSheetByName(COMMENTS_SHEET);
+    if (cSheet) ensureCommentsRoleHeader(cSheet);
+    const reactions = readShowcaseSheet(ss, REACTIONS_SHEET, REACTIONS_HEADERS);
+    const comments = readShowcaseSheet(ss, COMMENTS_SHEET, COMMENTS_HEADERS);
     return jsonOut({ ok: true, reactions: reactions, comments: comments });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err && err.message || err) });
   }
 }
 
-// ---------- POST：toggleReaction / addComment ----------
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents || "{}");
@@ -58,7 +325,6 @@ function doPost(e) {
   }
 }
 
-// ---------- toggleReaction ----------
 function handleToggleReaction(body) {
   const entryId = String(body.entryId || "").slice(0, 256);
   const emoji = String(body.emoji || "").slice(0, 16);
@@ -70,14 +336,12 @@ function handleToggleReaction(body) {
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = getOrCreateSheet(ss, REACTIONS_SHEET, REACTIONS_HEADERS);
+  const sheet = getOrCreateShowcaseSheet(ss, REACTIONS_SHEET, REACTIONS_HEADERS);
 
-  // 加鎖避免併發
   const lock = LockService.getScriptLock();
   lock.waitLock(5000);
   try {
     const data = sheet.getDataRange().getValues();
-    // 第 0 列是表頭
     const idxEntry = REACTIONS_HEADERS.indexOf("entryId");
     const idxEmoji = REACTIONS_HEADERS.indexOf("emoji");
     const idxUser = REACTIONS_HEADERS.indexOf("userId");
@@ -100,11 +364,11 @@ function handleToggleReaction(body) {
   }
 }
 
-// ---------- addComment ----------
 function handleAddComment(body) {
   const entryId = String(body.entryId || "").slice(0, 256);
   const userId = String(body.userId || "").slice(0, 64);
   const userName = String(body.userName || "").slice(0, 64);
+  const role = normalizeRole(body.role);
   let text = String(body.text || "").trim();
 
   if (!entryId || !userId || !text) {
@@ -116,20 +380,30 @@ function handleAddComment(body) {
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = getOrCreateSheet(ss, COMMENTS_SHEET, COMMENTS_HEADERS);
+  const sheet = getOrCreateShowcaseSheet(ss, COMMENTS_SHEET, COMMENTS_HEADERS);
+  ensureCommentsRoleHeader(sheet);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(5000);
   try {
-    sheet.appendRow([new Date(), entryId, userId, userName, text]);
+    sheet.appendRow([new Date(), entryId, userId, userName, text, role]);
     return jsonOut({ ok: true });
   } finally {
     lock.releaseLock();
   }
 }
 
-// ---------- 公用工具 ----------
-function getOrCreateSheet(ss, name, headers) {
+// 若 Comments 舊表頭只有 5 欄（沒有 role），幫它補一欄
+function ensureCommentsRoleHeader(sheet) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return;
+  const row = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (row.indexOf("role") === -1) {
+    sheet.getRange(1, lastCol + 1).setValue("role");
+  }
+}
+
+function getOrCreateShowcaseSheet(ss, name, headers) {
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
@@ -142,7 +416,7 @@ function getOrCreateSheet(ss, name, headers) {
   return sheet;
 }
 
-function readSheet(ss, name, headers) {
+function readShowcaseSheet(ss, name, headers) {
   const sheet = ss.getSheetByName(name);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
