@@ -29,6 +29,9 @@
 
   // ---------- 身分管理（localStorage，弱實名）----------
   const IDENTITY_STORAGE_KEY = "bts-showcase-identity-v1";
+  const GUEST_MODE_ENABLED = Boolean(CONFIG.guestModeEnabled);
+  const GUEST_ROLES = Array.isArray(CONFIG.guestRoles) ? CONFIG.guestRoles : [];
+  const GUEST_ROLE_BY_ID = new Map(GUEST_ROLES.map(r => [r.id, r]));
   let identity = loadIdentity();
 
   function loadIdentity() {
@@ -37,17 +40,19 @@
       if (!raw) return null;
       const obj = JSON.parse(raw);
       if (!obj || !obj.userId || !obj.userName) return null;
+      if (!obj.role) obj.role = "student";
       return obj;
     } catch (_) {
       return null;
     }
   }
 
-  function saveIdentity(name) {
+  function saveIdentity(name, role) {
     const existing = loadIdentity();
     const next = {
       userId: (existing && existing.userId) || generateUuid(),
       userName: name,
+      role: role || "student",
     };
     localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(next));
     identity = next;
@@ -57,6 +62,22 @@
   function generateUuid() {
     if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
     return "u-" + Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
+  }
+
+  function roleInfo(role) {
+    return GUEST_ROLE_BY_ID.get(role) || null;
+  }
+
+  function roleBadgeHtml(role) {
+    const info = roleInfo(role);
+    if (!info) return "";
+    return `<span class="role-badge role-${escapeHtml(role)}">${info.emoji} ${escapeHtml(info.label)}</span>`;
+  }
+
+  function displayNameWithRole(name, role) {
+    const info = roleInfo(role);
+    if (!info) return name;
+    return `${info.emoji} ${name}`;
   }
 
   // ---------- Entry ID（跨頁載入穩定）----------
@@ -97,6 +118,28 @@
     return socialState.comments
       .filter(c => c.entryId === entryId)
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+
+  // ---------- 大頭貼 ----------
+  const AVATAR_TYPE_RAW = (CONFIG.avatarType || "").trim();
+  const AVATAR_ENABLED = AVATAR_TYPE_RAW.length > 0;
+  let avatarsByStudent = new Map();
+
+  function isAvatarEntry(entry) {
+    if (!AVATAR_ENABLED || !entry || !entry.type) return false;
+    return String(entry.type).trim() === AVATAR_TYPE_RAW;
+  }
+
+  function avatarFor(studentName) {
+    return avatarsByStudent.get(normalizeName(studentName)) || null;
+  }
+
+  function renderAvatarImg(avatar, width = 400, extraAttrs = "") {
+    const fid = extractDriveFileId(avatar.fileUrl);
+    if (fid) {
+      return `<img src="${driveThumb(fid, width)}" alt="${escapeHtml(avatar.student)} 的大頭貼" loading="lazy" ${extraAttrs} onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>👤</div>'" />`;
+    }
+    return `<div class="fallback">👤</div>`;
   }
 
   // ---------- 初始化畫面文字 ----------
@@ -498,9 +541,16 @@
     const entries = entriesByStudent.get(normalizeName(student.name)) || [];
     const count = entries.length;
     const latest = entries[0];
-    const thumbHtml = latest
-      ? getMediaHtml(latest, 400)
-      : `<span class="empty">尚未上傳</span>`;
+    const avatar = avatarFor(student.name);
+
+    let thumbHtml;
+    if (avatar) {
+      thumbHtml = renderAvatarImg(avatar, 400);
+    } else if (latest) {
+      thumbHtml = getMediaHtml(latest, 400);
+    } else {
+      thumbHtml = `<span class="empty">尚未上傳</span>`;
+    }
 
     return `
       <div class="student-card" data-student="${escapeHtml(student.name)}">
@@ -530,7 +580,11 @@
     const classTag = cls
       ? ` <span class="tag" style="background:${cls.color};color:white">${escapeHtml(cls.label)}</span>`
       : "";
-    modalTitleEl.innerHTML = `${escapeHtml(studentName)}${classTag} <span style="color:var(--text-soft);font-weight:400;font-size:14px">· 共 ${entries.length} 則產出</span>`;
+    const avatar = avatarFor(studentName);
+    const avatarHtml = avatar
+      ? `<span class="modal-avatar">${renderAvatarImg(avatar, 160)}</span>`
+      : "";
+    modalTitleEl.innerHTML = `${avatarHtml}<span class="modal-title-text">${escapeHtml(studentName)}${classTag} <span style="color:var(--text-soft);font-weight:400;font-size:14px">· 共 ${entries.length} 則產出</span></span>`;
 
     if (entries.length === 0) {
       modalBodyEl.innerHTML = `<div class="placeholder">這位同學還沒有上傳任何產出</div>`;
@@ -657,15 +711,18 @@
     if (list.length === 0) {
       return `<div class="comment-empty">還沒有留言 · 第一個來留言吧</div>`;
     }
-    return list.map(c => `
+    return list.map(c => {
+      const badge = roleBadgeHtml(c.role);
+      return `
       <div class="comment">
         <div class="comment-meta">
-          <span class="author">${escapeHtml(c.userName || "匿名")}</span>
+          <span class="author">${escapeHtml(c.userName || "匿名")}${badge}</span>
           <span class="time">${formatTime(new Date(c.timestamp))}</span>
         </div>
         <div class="comment-text">${escapeHtml(c.text || "")}</div>
       </div>
-    `).join("");
+    `;
+    }).join("");
   }
 
   // 只更新 modal 裡的社交區塊（不動整個 body，避免丟失輸入中的文字與焦點）
@@ -763,6 +820,7 @@
       entryId, emoji,
       userId: identity.userId,
       userName: identity.userName,
+      role: identity.role,
     };
     if (wasActive) {
       socialState.reactions = socialState.reactions.filter(r =>
@@ -778,6 +836,7 @@
         entryId, emoji,
         userId: identity.userId,
         userName: identity.userName,
+        role: identity.role,
       });
       // 成功後稍後再拉一次，把別人的新動作也帶回來
       setTimeout(fetchSocial, 600);
@@ -815,6 +874,7 @@
         entryId,
         userId: identity.userId,
         userName: identity.userName,
+        role: identity.role,
         text,
       });
 
@@ -824,6 +884,7 @@
         entryId,
         userId: identity.userId,
         userName: identity.userName,
+        role: identity.role,
         text,
       });
 
@@ -860,7 +921,7 @@
     }
     identityBtn.hidden = false;
     if (identity && identity.userName) {
-      identityNameEl.textContent = identity.userName;
+      identityNameEl.textContent = displayNameWithRole(identity.userName, identity.role);
       identityBtn.classList.remove("is-unset");
     } else {
       identityNameEl.textContent = "選擇身分";
@@ -868,12 +929,54 @@
     }
   }
 
+  // 所有學生姓名（normalized），給訪客表單做重名檢查
+  const STUDENT_NAME_SET = new Set((CONFIG.students || []).map(s => normalizeName(s.name)));
+
+  function renderGuestFormHtml() {
+    if (!GUEST_MODE_ENABLED || GUEST_ROLES.length === 0) return "";
+    const activeRole = identity && identity.role && identity.role !== "student"
+      ? identity.role
+      : (GUEST_ROLES[0] && GUEST_ROLES[0].id) || "guest";
+    const activeNick = identity && identity.role !== "student"
+      ? identity.userName || ""
+      : "";
+    const roleBtns = GUEST_ROLES.map(r => `
+      <button type="button"
+              class="identity-role ${r.id === activeRole ? "active" : ""}"
+              data-role="${escapeHtml(r.id)}">
+        ${r.emoji} ${escapeHtml(r.label)}
+      </button>
+    `).join("");
+
+    return `
+      <div class="identity-group identity-group-guest">
+        <div class="identity-group-label">
+          <span class="dot" style="background:var(--ink)"></span>
+          訪客 / 老師 / 家長（自填暱稱）
+        </div>
+        <div class="identity-guest-form">
+          <div class="identity-role-row">${roleBtns}</div>
+          <div class="identity-nick-row">
+            <input type="text"
+                   id="identity-nick-input"
+                   class="identity-nick-input"
+                   maxlength="20"
+                   value="${escapeHtml(activeNick)}"
+                   placeholder="輸入暱稱（1–20 字，不可跟學生同名）" />
+            <button type="button" id="identity-nick-submit" class="identity-nick-submit">送出</button>
+          </div>
+          <div id="identity-guest-err" class="identity-guest-err" hidden></div>
+        </div>
+      </div>
+    `;
+  }
+
   function openIdentityPicker() {
-    const html = CLASSES.map(cls => {
+    const studentHtml = CLASSES.map(cls => {
       const students = (CONFIG.students || []).filter(s => s.class === cls.id);
       if (students.length === 0) return "";
       const options = students.map(s => {
-        const isActive = identity && identity.userName === s.name;
+        const isActive = identity && identity.role === "student" && identity.userName === s.name;
         return `<button type="button" class="identity-option ${isActive ? "active" : ""}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`;
       }).join("");
       return `
@@ -886,9 +989,52 @@
         </div>
       `;
     }).join("");
-    identityListEl.innerHTML = html;
+
+    identityListEl.innerHTML = studentHtml + renderGuestFormHtml();
     identityModalEl.hidden = false;
     document.body.style.overflow = "hidden";
+  }
+
+  function showGuestError(msg) {
+    const el = document.getElementById("identity-guest-err");
+    if (!el) return;
+    el.textContent = msg;
+    el.hidden = false;
+  }
+  function clearGuestError() {
+    const el = document.getElementById("identity-guest-err");
+    if (!el) return;
+    el.hidden = true;
+    el.textContent = "";
+  }
+
+  function submitGuestForm() {
+    const input = document.getElementById("identity-nick-input");
+    if (!input) return;
+    const raw = (input.value || "").trim();
+    if (!raw) {
+      showGuestError("請輸入暱稱");
+      input.focus();
+      return;
+    }
+    if (raw.length > 20) {
+      showGuestError("暱稱最多 20 字");
+      input.focus();
+      return;
+    }
+    if (STUDENT_NAME_SET.has(normalizeName(raw))) {
+      showGuestError("這個名字跟學生重複了，請換一個（例如加個「老師」「媽媽」）");
+      input.focus();
+      return;
+    }
+    const activeRoleBtn = identityListEl.querySelector(".identity-role.active");
+    const role = activeRoleBtn ? activeRoleBtn.dataset.role : "guest";
+    saveIdentity(raw, role);
+    refreshIdentityChip();
+    closeIdentityPicker();
+    if (openedStudentName) {
+      renderStudentModalBody(openedStudentName);
+    }
   }
 
   function closeIdentityPicker() {
@@ -902,14 +1048,39 @@
       el.addEventListener("click", closeIdentityPicker);
     });
     identityListEl.addEventListener("click", (e) => {
+      // 1) 學生選單：直接存成 student 身分
       const opt = e.target.closest(".identity-option");
-      if (!opt) return;
-      saveIdentity(opt.dataset.name);
-      refreshIdentityChip();
-      closeIdentityPicker();
-      // 身分改變後，重新渲染 modal（按鈕 disable 狀態變化）與 feed（無影響）
-      if (openedStudentName) {
-        renderStudentModalBody(openedStudentName);
+      if (opt) {
+        saveIdentity(opt.dataset.name, "student");
+        refreshIdentityChip();
+        closeIdentityPicker();
+        if (openedStudentName) {
+          renderStudentModalBody(openedStudentName);
+        }
+        return;
+      }
+      // 2) 訪客：切換角色
+      const roleBtn = e.target.closest(".identity-role");
+      if (roleBtn) {
+        identityListEl.querySelectorAll(".identity-role").forEach(b => b.classList.remove("active"));
+        roleBtn.classList.add("active");
+        clearGuestError();
+        return;
+      }
+      // 3) 訪客：送出暱稱
+      const submit = e.target.closest("#identity-nick-submit");
+      if (submit) {
+        submitGuestForm();
+        return;
+      }
+    });
+    identityListEl.addEventListener("input", (e) => {
+      if (e.target.id === "identity-nick-input") clearGuestError();
+    });
+    identityListEl.addEventListener("keydown", (e) => {
+      if (e.target.id === "identity-nick-input" && e.key === "Enter") {
+        e.preventDefault();
+        submitGuestForm();
       }
     });
     document.addEventListener("keydown", (e) => {
@@ -935,7 +1106,22 @@
   async function load() {
     setStatus("warn", "更新中…");
     try {
-      const entries = await fetchSheetData();
+      const raw = await fetchSheetData();
+
+      // 大頭貼類型的條目抽出來獨立維護；不進 feed、不進作品計數
+      avatarsByStudent = new Map();
+      const entries = [];
+      for (const e of raw) {
+        if (isAvatarEntry(e)) {
+          const key = normalizeName(e.student);
+          const existing = avatarsByStudent.get(key);
+          if (!existing || (e.timestamp instanceof Date && existing.timestamp < e.timestamp)) {
+            avatarsByStudent.set(key, e);
+          }
+        } else {
+          entries.push(e);
+        }
+      }
       allEntries = entries;
 
       entriesByStudent = new Map();
