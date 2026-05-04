@@ -483,7 +483,10 @@
       .slice(0, 12);
 
     const filterLabel = activeFilter === "ALL" ? "全班" : getClassInfo(activeFilter).label;
-    feedSubEl.textContent = `${filterLabel}最近的 ${Math.min(latest.length, 12)} 則產出`;
+    const nShown = Math.min(latest.length, 12);
+    const scrollHint =
+      latest.length >= 6 ? " · 可向左右滑動瀏覽全部" : "";
+    feedSubEl.textContent = `${filterLabel}最近的 ${nShown} 則產出${scrollHint}`;
 
     if (latest.length === 0) {
       const msg = activeFilter === "ALL"
@@ -502,7 +505,7 @@
       return `
       <article class="feed-card" data-student="${escapeHtml(entry.student)}">
         <div class="media">
-          ${getMediaHtml(entry, 600)}
+          ${getMediaHtml(entry, 280)}
           <span class="type-badge">${escapeHtml(typeBadge(entry.type))}</span>
           ${classBadge}
         </div>
