@@ -3,19 +3,20 @@
  * BTS Student Showcase · Apps Script（整合版，與實際部署同步）
  * ================================================================
  *
- * 本檔案整合三段功能：
+ * 本檔案整合四段功能：
  *   1. 表單送出後，自動把檔案搬到對應學生的 Drive 資料夾並重新命名
- *   2. 一次性把每個學生資料夾分享給對應 email（編輯權限）
- *   3. Student Showcase 反應與留言後端（emoji + 留言 + 訪客模式 role 欄）
+ *   2. 一次性把每個學生資料夾分享給對應 email（編輯權限）+ 寄驗證碼通知
+ *   3. 學生身分驗證碼 API；Showcase 個人簡介讀寫（Bios）
+ *   4. Student Showcase：反應、留言、（與上述共用 doGet/doPost）
  *
- * 前兩段是檔案管理，第三段是網站互動後端，互相獨立、不會干擾。
+ * 前兩段是 Drive／表單檔案管理；後端 Web App（doGet／doPost）承載身分驗證、個人簡介、反應與留言，互相可分開維護。
  *
  * 部署 Showcase 後端：
  *   1. 「部署」→「新增部署作業」→ 類型「網頁應用程式」
  *   2. 執行身分：「我」　存取權：「任何人」
  *   3. 拿到的網址貼到 config.js 的 appsScriptUrl
  *
- * ⚠️ 學生 email 對照表（STUDENT_EMAILS）為個資，請勿提交至 GitHub。
+ * ⚠️ 學生 email、驗證碼（STUDENTS_PRIVATE）為個資，請勿提交至 GitHub。
  *    本檔案在 repo 中只放假資料示範，真正的 email 維持只在 Apps Script
  *    編輯器內。
  * ================================================================
@@ -407,13 +408,17 @@ function handleVerifyCode(body) {
 
 const REACTIONS_SHEET = "Reactions";
 const COMMENTS_SHEET = "Comments";
+const BIOS_SHEET = "Bios";
 
 const REACTIONS_HEADERS = ["timestamp", "entryId", "emoji", "userId", "userName"];
 // 留言表新增 role 欄位以支援訪客模式（student/guest/teacher/parent）
 // 舊有試算表若沒有 role 欄，程式會在首次 doPost / doGet 時自動補上表頭
 const COMMENTS_HEADERS = ["timestamp", "entryId", "userId", "userName", "text", "role"];
+const BIOS_HEADERS = ["timestamp", "studentName", "userId", "text"];
 
 const MAX_COMMENT_LENGTH = 200;
+// 個人簡介字數上限（與前端 config.studentBioMaxLength 建議保持一致）
+const MAX_BIO_LENGTH = 280;
 const ALLOWED_ROLES = ["student", "guest", "teacher", "parent"];
 
 function normalizeRole(r) {
@@ -429,6 +434,7 @@ function doGet(e) {
     if (cSheet) ensureCommentsRoleHeader(cSheet);
     const reactions = readShowcaseSheet(ss, REACTIONS_SHEET, REACTIONS_HEADERS);
     const comments = readShowcaseSheet(ss, COMMENTS_SHEET, COMMENTS_HEADERS);
+    const bios = readLatestBios(ss);
     // codesEnabled：若 STUDENTS_PRIVATE 裡至少有一位設了 code，就回 true。
     // 前端會用這個旗標決定要不要跳出驗證碼輸入畫面。
     const codesEnabled = STUDENTS_PRIVATE.some(s => s && s.code);
@@ -436,6 +442,7 @@ function doGet(e) {
       ok: true,
       reactions: reactions,
       comments: comments,
+      bios: bios,
       codesEnabled: codesEnabled,
     });
   } catch (err) {
@@ -453,6 +460,7 @@ function doPost(e) {
     if (action === "toggleReaction") return handleToggleReaction(body);
     if (action === "addComment") return handleAddComment(body);
     if (action === "verifyCode") return handleVerifyCode(body);
+    if (action === "setBio") return handleSetBio(body);
 
     return jsonOut({ ok: false, error: "unknown action" });
   } catch (err) {
@@ -526,6 +534,83 @@ function handleAddComment(body) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// 每位學生「個人簡介」會 append 成一列；公開讀取時取該姓名的最新時間那一列。
+// STUDENTS_PRIVATE 若已填資料，則只接受名單內姓名（防空刷）；若陣列為空則不檢查（範例專案用）。
+function handleSetBio(body) {
+  const rawName = String(body.studentName || "").trim();
+  const userId = String(body.userId || "").slice(0, 64);
+  let text = String(body.text ?? "").trim();
+
+  if (!rawName || !userId) {
+    return jsonOut({ ok: false, error: "missing fields" });
+  }
+
+  const studentName = normalizeName(rawName);
+  if (!studentName) {
+    return jsonOut({ ok: false, error: "missing fields" });
+  }
+
+  if (STUDENTS_PRIVATE.length > 0 && !findStudentPrivate(studentName)) {
+    return jsonOut({ ok: false, error: "unknown student" });
+  }
+
+  if (text.length > MAX_BIO_LENGTH) {
+    text = text.slice(0, MAX_BIO_LENGTH);
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = getOrCreateShowcaseSheet(ss, BIOS_SHEET, BIOS_HEADERS);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    sheet.appendRow([new Date(), studentName, userId, text]);
+    return jsonOut({ ok: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function readLatestBios(ss) {
+  const sheet = ss.getSheetByName(BIOS_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const data = sheet.getDataRange().getValues();
+  const idxTs = BIOS_HEADERS.indexOf("timestamp");
+  const idxName = BIOS_HEADERS.indexOf("studentName");
+  const idxText = BIOS_HEADERS.indexOf("text");
+  return _buildLatestBiosList(data, idxTs, idxName, idxText);
+}
+
+function _buildLatestBiosList(data, idxTs, idxName, idxText) {
+  const best = {}; // normalized name -> { ts, text, displayName }
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    let ts = row[idxTs];
+    if (!(ts instanceof Date)) ts = new Date(ts);
+    if (isNaN(ts.getTime())) continue;
+    const rawName = row[idxName];
+    const nm = normalizeName(rawName);
+    if (!nm) continue;
+    const txt = String(row[idxText] != null ? row[idxText] : "").trim();
+    const display = rawName != null && String(rawName).trim() ? String(rawName).trim() : nm;
+    // 同一時間戳多列時，後面那列（較新 append）勝出
+    if (!best[nm] || ts >= best[nm].ts) {
+      best[nm] = { ts: ts, text: txt, displayName: display };
+    }
+  }
+  const out = [];
+  for (const k in best) {
+    const b = best[k];
+    out.push({
+      studentName: b.displayName,
+      text: b.text,
+      timestamp: b.ts.toISOString(),
+    });
+  }
+  return out;
 }
 
 // 若 Comments 舊表頭只有 5 欄（沒有 role），幫它補一欄

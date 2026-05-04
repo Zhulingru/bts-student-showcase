@@ -95,6 +95,12 @@
   // ---------- 社交狀態（反應 + 留言）----------
   const socialEnabled = Boolean(CONFIG.appsScriptUrl && !CONFIG.appsScriptUrl.includes("貼上"));
   let socialState = { reactions: [], comments: [] };
+  let biosByStudent = new Map(); // normalized name → { text, timestamp }
+  const STUDENT_BIO_MAX =
+    typeof CONFIG.studentBioMaxLength === "number" && CONFIG.studentBioMaxLength >= 60 && CONFIG.studentBioMaxLength <= 512
+      ? CONFIG.studentBioMaxLength
+      : 280;
+
   let openedStudentName = null;
 
   function reactionCountsFor(entryId) {
@@ -118,6 +124,17 @@
     return socialState.comments
       .filter(c => c.entryId === entryId)
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }
+
+  function studentBioFor(studentName) {
+    const rec = biosByStudent.get(normalizeName(studentName));
+    return rec && rec.text ? String(rec.text) : "";
+  }
+
+  function canEditStudentBio(studentName) {
+    if (!socialEnabled || !identity) return false;
+    if (identity.role !== "student") return false;
+    return normalizeName(identity.userName) === normalizeName(studentName);
   }
 
   // ---------- 大頭貼 ----------
@@ -564,6 +581,41 @@
     `;
   }
 
+  function renderStudentBioSection(studentName) {
+    if (!socialEnabled) return "";
+    const text = studentBioFor(studentName);
+    const editable = canEditStudentBio(studentName);
+
+    if (editable) {
+      return `
+      <section class="student-bio-section" aria-label="個人簡介">
+        <div class="student-bio-heading">個人簡介</div>
+        <p class="student-bio-hint">
+          你目前已選身分為<strong>${escapeHtml(identity.userName)}</strong>，只在此區可以編輯自己的簡介；點其他同學的頭像時僅供瀏覽。
+        </p>
+        <textarea
+          id="student-bio-input"
+          class="student-bio-input"
+          maxlength="${STUDENT_BIO_MAX}"
+          rows="5"
+          placeholder="簡短介紹你自己…">${escapeHtml(text)}</textarea>
+        <div class="student-bio-actions">
+          <button type="button" class="btn btn-primary student-bio-save" id="student-bio-save">儲存</button>
+          <span id="student-bio-status" class="student-bio-status" hidden></span>
+        </div>
+      </section>`;
+    }
+
+    return `
+      <section class="student-bio-section" aria-label="個人簡介">
+        <div class="student-bio-heading">個人簡介</div>
+        ${text
+          ? `<div class="student-bio-readonly"><p class="student-bio-body">${escapeHtml(text)}</p></div>`
+          : `<div class="student-bio-readonly"><p class="student-bio-empty">對方尚未填寫個人簡介</p></div>`
+        }
+      </section>`;
+  }
+
   // ---------- 學生詳情彈窗 ----------
   function openStudentModal(studentName) {
     openedStudentName = studentName;
@@ -586,11 +638,15 @@
       : "";
     modalTitleEl.innerHTML = `${avatarHtml}<span class="modal-title-text">${escapeHtml(studentName)}${classTag} <span style="color:var(--text-soft);font-weight:400;font-size:14px">· 共 ${entries.length} 則產出</span></span>`;
 
+    const bioHtml = renderStudentBioSection(studentName);
+    let worksHtml = "";
     if (entries.length === 0) {
-      modalBodyEl.innerHTML = `<div class="placeholder">這位同學還沒有上傳任何產出</div>`;
+      worksHtml = `<div class="placeholder student-works-placeholder">這位同學還沒有上傳任何產出</div>`;
     } else {
-      modalBodyEl.innerHTML = entries.map(entry => renderEntryDetail(entry)).join("");
+      worksHtml = entries.map(entry => renderEntryDetail(entry)).join("");
     }
+
+    modalBodyEl.innerHTML = bioHtml + worksHtml;
   }
 
   function renderEntryDetail(entry) {
@@ -791,10 +847,30 @@
       socialState.reactions = Array.isArray(json.reactions) ? json.reactions : [];
       socialState.comments = Array.isArray(json.comments) ? json.comments : [];
       codesEnabled = !!json.codesEnabled;
+
+      const nextBios = new Map();
+      for (const b of Array.isArray(json.bios) ? json.bios : []) {
+        const k = normalizeName(b.studentName);
+        if (!k) continue;
+        nextBios.set(k, {
+          text: String(b.text != null ? b.text : "").trim(),
+          timestamp: b.timestamp || "",
+        });
+      }
+      biosByStudent = nextBios;
       // Feed 卡片的小計數也要刷新
       renderFeed();
-      // 若有彈窗開著，局部更新反應與留言
+      // 若有彈窗開著，局部更新反應／留言／非編輯中時的個人簡介
       updateModalSocialOnly();
+
+      const ta = document.getElementById("student-bio-input");
+      const editingBio = ta && document.activeElement === ta;
+      if (openedStudentName && !modalEl.hidden && !editingBio) {
+        const sec = modalBodyEl.querySelector(".student-bio-section");
+        if (sec && !canEditStudentBio(openedStudentName)) {
+          sec.outerHTML = renderStudentBioSection(openedStudentName);
+        }
+      }
     } catch (err) {
       console.warn("[social] 載入失敗：", err.message || err);
     }
@@ -902,9 +978,67 @@
     }
   }
 
+  async function handleStudentBioSave() {
+    if (!identity || openedStudentName == null) return;
+    if (!canEditStudentBio(openedStudentName)) return;
+
+    const ta = document.getElementById("student-bio-input");
+    const btn = document.getElementById("student-bio-save");
+    const status = document.getElementById("student-bio-status");
+    if (!ta || !btn) return;
+
+    let text = String(ta.value || "").trim();
+    if (text.length > STUDENT_BIO_MAX) text = text.slice(0, STUDENT_BIO_MAX);
+
+    btn.disabled = true;
+    ta.disabled = true;
+    if (status) { status.hidden = true; status.textContent = ""; }
+
+    try {
+      await postToAppsScript({
+        action: "setBio",
+        studentName: openedStudentName,
+        userId: identity.userId,
+        text,
+      });
+
+      biosByStudent.set(normalizeName(openedStudentName), {
+        text,
+        timestamp: new Date().toISOString(),
+      });
+      renderStudentModalBody(openedStudentName);
+
+      const stNew = document.getElementById("student-bio-status");
+      const btnNew = document.getElementById("student-bio-save");
+      if (stNew && btnNew && canEditStudentBio(openedStudentName)) {
+        btnNew.disabled = false;
+        const taNew = document.getElementById("student-bio-input");
+        if (taNew) taNew.disabled = false;
+        stNew.hidden = false;
+        stNew.textContent = "已儲存";
+        setTimeout(() => { if (stNew) stNew.hidden = true; }, 2600);
+      }
+      setTimeout(fetchSocial, 500);
+    } catch (err) {
+      console.warn("[bio]", err.message || err);
+      ta.disabled = false;
+      btn.disabled = false;
+      if (status) {
+        status.hidden = false;
+        status.textContent = "儲存失敗：" + (err.message || "請稍後再試");
+      }
+    }
+  }
+
   // Event delegation：綁一次就好（modalBodyEl 本身不會被替換）
   if (socialEnabled) {
     modalBodyEl.addEventListener("click", (e) => {
+      const saveBio = e.target.closest("#student-bio-save");
+      if (saveBio) {
+        if (!identity) { openIdentityPicker(); return; }
+        handleStudentBioSave();
+        return;
+      }
       const btn = e.target.closest(".reaction-btn");
       if (btn && !btn.disabled) handleReactionClick(btn);
     });
