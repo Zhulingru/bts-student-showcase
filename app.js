@@ -261,6 +261,22 @@
     return `https://drive.google.com/file/d/${fileId}/view`;
   }
 
+  /** 嵌入預覽網址：PDF／Drive 檔可走 file/preview；Google 原生連結請用對應 product 網址，否則嵌入會失敗。 */
+  function driveEmbeddedPreviewUrl(entry, fileId) {
+    const id = encodeURIComponent(fileId);
+    const u = String(entry.fileUrl || "");
+    if (/docs\.google\.com\/document\//i.test(u)) {
+      return `https://docs.google.com/document/d/${id}/preview`;
+    }
+    if (/docs\.google\.com\/spreadsheets\//i.test(u)) {
+      return `https://docs.google.com/spreadsheets/d/${id}/preview`;
+    }
+    if (/docs\.google\.com\/presentation\//i.test(u)) {
+      return `https://docs.google.com/presentation/d/${id}/preview`;
+    }
+    return `https://drive.google.com/file/d/${id}/preview`;
+  }
+
   function getInitials(name) {
     if (!name) return "？";
     return name.trim().slice(0, 1);
@@ -655,7 +671,7 @@
     modalBodyEl.innerHTML = bioHtml + worksHtml;
   }
 
-  /** 學生詳情側欄縮圖：圖片用 cover；影片先試 Drive 縮圖；文件用版型化佔位（Drive 常回傳很小的圖示） */
+  /** 學生詳情側欄：圖 cover；PDF／文件試 Drive/Google 嵌入預覽（首頁級可視區）；影片先試縮圖 */
   function renderEntryMediaBlock(entry) {
     const fileId = extractDriveFileId(entry.fileUrl);
     if (fileId) {
@@ -663,10 +679,13 @@
         return `<img src="${driveThumb(fileId, 800)}" alt="${escapeHtml(entry.title)}" />`;
       }
       if (isDocType(entry.type)) {
-        return `<div class="entry-media-placeholder entry-media-placeholder--doc" role="img" aria-label="檔案：文件">
-          <span class="entry-media-placeholder-icon" aria-hidden="true">📄</span>
-          <span class="entry-media-placeholder-label">文件預覽</span>
-          <span class="entry-media-placeholder-hint">請點下方「在 Drive 開啟」瀏覽完整內容</span>
+        const src = driveEmbeddedPreviewUrl(entry, fileId);
+        return `<div class="entry-media-stack entry-doc-embed-stack">
+          <iframe
+            class="entry-drive-preview"
+            src="${src}"
+            title="${escapeHtml(entry.title)} 文件預覽"
+            loading="lazy"></iframe>
         </div>`;
       }
       if (isVideoType(entry.type)) {
@@ -676,7 +695,7 @@
           <div class="entry-media-placeholder entry-media-placeholder--video is-hidden" aria-hidden="true">
             <span class="entry-media-placeholder-icon" aria-hidden="true">🎬</span>
             <span class="entry-media-placeholder-label">影片</span>
-            <span class="entry-media-placeholder-hint">請點「在 Drive 開啟」播放</span>
+            <span class="entry-media-placeholder-hint">點縮圖或下方「在 Drive 開啟」播放</span>
           </div>
         </div>`;
       }
@@ -686,7 +705,7 @@
       return `<div class="entry-media-placeholder entry-media-placeholder--link" role="img" aria-label="連結項目">
         <span class="entry-media-placeholder-icon" aria-hidden="true">🔗</span>
         <span class="entry-media-placeholder-label">連結</span>
-        <span class="entry-media-placeholder-hint">點下方「外部連結」前往</span>
+        <span class="entry-media-placeholder-hint">點縮圖或下方「外部連結」</span>
       </div>`;
     }
     return `<div class="entry-media-placeholder entry-media-placeholder--note" role="img" aria-label="文字項目">
@@ -699,20 +718,39 @@
     const fileId = extractDriveFileId(entry.fileUrl);
     const mediaBlock = renderEntryMediaBlock(entry);
 
+    let mediaHref = "";
+    let mediaHitLabel = "";
+    if (fileId) {
+      mediaHref = driveOpenUrl(fileId);
+      mediaHitLabel = "在 Drive 開啟";
+    } else if (entry.linkUrl) {
+      mediaHref = String(entry.linkUrl).trim();
+      mediaHitLabel = "開啟外部連結";
+    }
+
+    const hitHtml = mediaHref
+      ? `<a class="entry-media-hit" href="${escapeHtml(mediaHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(mediaHitLabel)}（新分頁）" title="${escapeHtml(mediaHitLabel)}"></a>`
+      : "";
+
     const links = [];
     if (fileId) {
-      links.push(`<a href="${driveOpenUrl(fileId)}" target="_blank" rel="noopener">在 Drive 開啟</a>`);
+      links.push(`<a href="${escapeHtml(driveOpenUrl(fileId))}" target="_blank" rel="noopener noreferrer">在 Drive 開啟</a>`);
     }
     if (entry.linkUrl) {
-      links.push(`<a href="${escapeHtml(entry.linkUrl)}" target="_blank" rel="noopener">外部連結 ↗</a>`);
+      links.push(`<a href="${escapeHtml(entry.linkUrl)}" target="_blank" rel="noopener noreferrer">外部連結 ↗</a>`);
     }
 
     const reactionsHtml = socialEnabled ? renderReactionsBar(entry) : "";
     const commentsHtml = socialEnabled ? renderCommentsSection(entry) : "";
 
+    const mediaShellClass = hitHtml ? "entry-media entry-media--clickable" : "entry-media";
+
     return `
       <div class="entry">
-        <div class="entry-media">${mediaBlock}</div>
+        <div class="${mediaShellClass}">
+          ${mediaBlock}
+          ${hitHtml}
+        </div>
         <div class="entry-info">
           <div class="entry-title">${escapeHtml(entry.title)}</div>
           ${entry.desc ? `<div class="entry-desc">${escapeHtml(entry.desc)}</div>` : ""}
