@@ -49,7 +49,10 @@ const CONFIG = {
   // 反應與留言的刷新間隔（秒），比作品刷新快一點，讓互動更有臨場感
   socialRefreshIntervalSeconds: 10,
 
-  // 個人簡介字數上限（需啟用 appsScriptUrl；與後端 MAX_BIO_LENGTH 一致較好）
+  // ─── 個人簡介（選用）──────────────────────────────────
+  // 需在下方啟用 appsScriptUrl（與 emoji／留言／驗證碼為同一組後端）。
+  // false = 完全不顯示簡介區；之後要打開改成 true，並將 apps-script.gs 部署為新版本。
+  studentBioEnabled: false,
   studentBioMaxLength: 280,
 
   // ─── 訪客模式（選用）──────────────────────────────────

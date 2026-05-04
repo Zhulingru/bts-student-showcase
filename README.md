@@ -245,7 +245,7 @@ appsScriptUrl: "https://script.google.com/macros/s/AKfycbx.../exec",
 
 ### 個人簡介（進階）
 
-網站上每個創作者視窗會顯示「個人簡介」，所有人可見。若來訪者在右上角選的是**學生身分**，且選的名字與當前列表中的本人相同，視窗會出現可自行編輯的多行輸入與「儲存」按鈕；資料經現有的 Apps Script `POST (setBio)` 寫進試算表 **`Bios` 分頁**，網頁載入／輪詢時再讀出最新一段（與 emoji / 留言同一套機制）。
+網站上每個創作者視窗可顯示「個人簡介」，需在 **`config.js` 設 `studentBioEnabled: true`**（預設為關閉）才會開啟 UI。啟用後，所有人可見；若來訪者在右上角選的是**學生身分**，且選的名字與當前列表中的本人相同，視窗會出現可自行編輯的多行輸入與「儲存」按鈕；資料經 Apps Script `POST (setBio)` 寫進試算表 **`Bios` 分頁**，網頁載入／輪詢時再讀出最新一段。
 
 - 請在 **`config.js` 將 `studentBioMaxLength`** 調整字數上限時，將 Apps Script 內常量 **`MAX_BIO_LENGTH`** 改成相同數字並重新部署較為理想。
 - 只有 `role === "student"` 且身分名稱與該創作者完全一致時才可編輯；訪客／老師／家長身分點任何人的視窗都只能瀏覽。

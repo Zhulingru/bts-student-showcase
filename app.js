@@ -96,6 +96,7 @@
   const socialEnabled = Boolean(CONFIG.appsScriptUrl && !CONFIG.appsScriptUrl.includes("貼上"));
   let socialState = { reactions: [], comments: [] };
   let biosByStudent = new Map(); // normalized name → { text, timestamp }
+  const STUDENT_BIO_ENABLED = Boolean(CONFIG.studentBioEnabled);
   const STUDENT_BIO_MAX =
     typeof CONFIG.studentBioMaxLength === "number" && CONFIG.studentBioMaxLength >= 60 && CONFIG.studentBioMaxLength <= 512
       ? CONFIG.studentBioMaxLength
@@ -132,7 +133,7 @@
   }
 
   function canEditStudentBio(studentName) {
-    if (!socialEnabled || !identity) return false;
+    if (!STUDENT_BIO_ENABLED || !socialEnabled || !identity) return false;
     if (identity.role !== "student") return false;
     return normalizeName(identity.userName) === normalizeName(studentName);
   }
@@ -582,7 +583,7 @@
   }
 
   function renderStudentBioSection(studentName) {
-    if (!socialEnabled) return "";
+    if (!socialEnabled || !STUDENT_BIO_ENABLED) return "";
     const text = studentBioFor(studentName);
     const editable = canEditStudentBio(studentName);
 
@@ -848,27 +849,33 @@
       socialState.comments = Array.isArray(json.comments) ? json.comments : [];
       codesEnabled = !!json.codesEnabled;
 
-      const nextBios = new Map();
-      for (const b of Array.isArray(json.bios) ? json.bios : []) {
-        const k = normalizeName(b.studentName);
-        if (!k) continue;
-        nextBios.set(k, {
-          text: String(b.text != null ? b.text : "").trim(),
-          timestamp: b.timestamp || "",
-        });
+      if (STUDENT_BIO_ENABLED) {
+        const nextBios = new Map();
+        for (const b of Array.isArray(json.bios) ? json.bios : []) {
+          const k = normalizeName(b.studentName);
+          if (!k) continue;
+          nextBios.set(k, {
+            text: String(b.text != null ? b.text : "").trim(),
+            timestamp: b.timestamp || "",
+          });
+        }
+        biosByStudent = nextBios;
+      } else {
+        biosByStudent = new Map();
       }
-      biosByStudent = nextBios;
       // Feed 卡片的小計數也要刷新
       renderFeed();
       // 若有彈窗開著，局部更新反應／留言／非編輯中時的個人簡介
       updateModalSocialOnly();
 
-      const ta = document.getElementById("student-bio-input");
-      const editingBio = ta && document.activeElement === ta;
-      if (openedStudentName && !modalEl.hidden && !editingBio) {
-        const sec = modalBodyEl.querySelector(".student-bio-section");
-        if (sec && !canEditStudentBio(openedStudentName)) {
-          sec.outerHTML = renderStudentBioSection(openedStudentName);
+      if (STUDENT_BIO_ENABLED) {
+        const ta = document.getElementById("student-bio-input");
+        const editingBio = ta && document.activeElement === ta;
+        if (openedStudentName && !modalEl.hidden && !editingBio) {
+          const sec = modalBodyEl.querySelector(".student-bio-section");
+          if (sec && !canEditStudentBio(openedStudentName)) {
+            sec.outerHTML = renderStudentBioSection(openedStudentName);
+          }
         }
       }
     } catch (err) {
@@ -979,6 +986,7 @@
   }
 
   async function handleStudentBioSave() {
+    if (!STUDENT_BIO_ENABLED) return;
     if (!identity || openedStudentName == null) return;
     if (!canEditStudentBio(openedStudentName)) return;
 
@@ -1033,11 +1041,13 @@
   // Event delegation：綁一次就好（modalBodyEl 本身不會被替換）
   if (socialEnabled) {
     modalBodyEl.addEventListener("click", (e) => {
-      const saveBio = e.target.closest("#student-bio-save");
-      if (saveBio) {
-        if (!identity) { openIdentityPicker(); return; }
-        handleStudentBioSave();
-        return;
+      if (STUDENT_BIO_ENABLED) {
+        const saveBio = e.target.closest("#student-bio-save");
+        if (saveBio) {
+          if (!identity) { openIdentityPicker(); return; }
+          handleStudentBioSave();
+          return;
+        }
       }
       const btn = e.target.closest(".reaction-btn");
       if (btn && !btn.disabled) handleReactionClick(btn);
