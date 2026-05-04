@@ -508,9 +508,12 @@ main {
   font-family: var(--font-mono);
   font-size: 8.5px;
   color: var(--ash);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   margin-top: 2px;
-  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* ===== Class group (directory section) ===== */
@@ -901,8 +904,7 @@ main {
   gap: 16px;
   flex-wrap: wrap;
   align-items: center;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .entry .entry-meta a {
@@ -1342,7 +1344,8 @@ main {
 }
 
 .comment-meta .time {
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
 .comment-text {

@@ -226,15 +226,17 @@
     statusEl.innerHTML = `<span class="status-dot ${dotClass}"></span>${text}`;
   }
 
-  function formatTime(d) {
+  /** 產出／留言時間：年月日 + 時分（24 小時制，例：2026年5月2日 14:30） */
+  function formatEntryTimestamp(d) {
     if (!(d instanceof Date) || isNaN(d)) return "";
-    const now = new Date();
-    const diff = (now - d) / 1000;
-    if (diff < 60) return "剛剛";
-    if (diff < 3600) return `${Math.floor(diff / 60)} 分鐘前`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} 小時前`;
-    if (diff < 7 * 86400) return `${Math.floor(diff / 86400)} 天前`;
-    return d.toLocaleDateString("zh-TW", { year: "numeric", month: "2-digit", day: "2-digit" });
+    return new Intl.DateTimeFormat("zh-TW", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(d);
   }
 
   function extractDriveFileId(url) {
@@ -515,7 +517,7 @@
             <span>${escapeHtml(entry.student)}</span>
           </div>
           <div class="title">${escapeHtml(entry.title)}</div>
-          <div class="timestamp">${formatTime(entry.timestamp)}</div>
+          <div class="timestamp">${formatEntryTimestamp(entry.timestamp)}</div>
           ${socialLine}
         </div>
       </article>
@@ -690,7 +692,7 @@
           ${entry.desc ? `<div class="entry-desc">${escapeHtml(entry.desc)}</div>` : ""}
           <div class="entry-meta">
             <span class="tag">${escapeHtml(typeBadge(entry.type))}</span>
-            <span>${formatTime(entry.timestamp)}</span>
+            <span>${formatEntryTimestamp(entry.timestamp)}</span>
             ${links.join("")}
           </div>
           ${reactionsHtml}
@@ -777,7 +779,7 @@
       <div class="comment">
         <div class="comment-meta">
           <span class="author">${escapeHtml(c.userName || "匿名")}${badge}</span>
-          <span class="time">${formatTime(new Date(c.timestamp))}</span>
+          <span class="time">${formatEntryTimestamp(new Date(c.timestamp))}</span>
         </div>
         <div class="comment-text">${escapeHtml(c.text || "")}</div>
       </div>
