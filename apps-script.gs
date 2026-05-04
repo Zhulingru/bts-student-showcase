@@ -16,9 +16,7 @@
  *   2. 執行身分：「我」　存取權：「任何人」
  *   3. 拿到的網址貼到 config.js 的 appsScriptUrl
  *
- * ⚠️ 學生 email、驗證碼（STUDENTS_PRIVATE）為個資，請勿提交至 GitHub。
- *    本檔案在 repo 中只放假資料示範，真正的 email 維持只在 Apps Script
- *    編輯器內。
+ * ⚠️ 學生 email、驗證碼（STUDENTS_PRIVATE）為個資。本 repo 可依班級決定是否填入真實名單以方便複製進 Apps Script；若對外公開，請評估是否要改為僅編輯器內維護或另用私有備份。
  * ================================================================
  */
 
@@ -205,9 +203,8 @@ function sanitize(s) {
 }
 
 
-// ============== 學生私密資料（email + 驗證碼，僅存於 Apps Script，不進 GitHub）==============
-// ⚠️ 這張表是個資，請勿把真實 email 或驗證碼提交到 GitHub。
-//    本檔案在 repo 中只放假資料示範格式，真正的資料維持只在 Apps Script 編輯器內。
+// ============== 學生資料（email + 驗證碼；本機／repo 可與 Apps Script 同步）==============
+// ⚠️ 若 repo 為公開，此區塊內容等同對外可看，請視校內規範自行決定是否保留／改打碼／改私有備份。
 //
 // 每一筆欄位：
 //   name  ：和網站 config.js 裡的 students[].name 必須完全一致
@@ -217,8 +214,38 @@ function sanitize(s) {
 //           比對時不分大小寫、前後空白自動去掉
 //
 const STUDENTS_PRIVATE = [
-  // 範例格式（實際資料放在 Apps Script 編輯器內）：
-  // { name: "王小明", email: "s000000_example@school.edu.tw", code: "3714" },
+  // A 班（13）
+  { name: "黃羿晴", email: "s113011_yichinghuang@btsflip.tp.edu.tw", code: "0751" },
+  { name: "張凱倫", email: "s113012_kieranchangvisvanathan@btsflip.tp.edu.tw", code: "5830" },
+  { name: "黃詠琳", email: "s113019_huangyonglin@btsflip.tp.edu.tw", code: "8381" },
+  { name: "林于崴", email: "s113028_linyuwei@btsflip.tp.edu.tw", code: "9783" },
+  { name: "林若谷", email: "s113006_linruoku@btsflip.tp.edu.tw", code: "5029" },
+  { name: "楊靖鈞", email: "s113008_yangchingchun@btsflip.tp.edu.tw", code: "9859" },
+  { name: "盧愛心", email: "s113002_luaixin@btsflip.tp.edu.tw", code: "6629" },
+  { name: "馬家榆", email: "s113020_majiayu@btsflip.com", code: "5521" },
+  { name: "施宥均", email: "s113029_shihyoujyun@btsflip.tp.edu.tw", code: "7585" },
+  { name: "張彥霆", email: "s113009_changyenting@btsflip.tp.edu.tw", code: "6599" },
+  { name: "楊承樺", email: "s113015_yangchenghua@btsflip.tp.edu.tw", code: "4415" },
+  { name: "李宛頤", email: "s113018_leewanyi@btsflip.tp.edu.tw", code: "2783" },
+  { name: "謝凝思", email: "s113026_hsiehryan@btsflip.tp.edu.tw", code: "1756" },
+  // B 班（15）
+  { name: "陳妤欣", email: "s113005_chenyusin@btsflip.tp.edu.tw", code: "6375" },
+  { name: "鍾勻浩", email: "s113014_chungyunhao@btsflip.tp.edu.tw", code: "7004" },
+  { name: "涂子宥", email: "s113022_tuziyou@btsflip.com", code: "3088" },
+  { name: "何樂", email: "s113003_hole@btsflip.tp.edu.tw", code: "1393" },
+  { name: "黃可馨", email: "s113004_huangkesin@btsflip.tp.edu.tw", code: "1762" },
+  { name: "程亮瑜", email: "s113016_chengliangyu@btsflip.tp.edu.tw", code: "5399" },
+  { name: "張語晴", email: "s113027_changyuching@btsflip.tp.edu.tw", code: "3177" },
+  { name: "張一心", email: "s113001_changyihsin@btsflip.tp.edu.tw", code: "4433" },
+  { name: "杜品儀", email: "s113013_tupinyi@btsflip.tp.edu.tw", code: "8126" },
+  { name: "洪若馨", email: "s113021_hungruoshin@btsflip.com", code: "4313" },
+  { name: "胡睿成", email: "s113023_hujuichen@btsflip.com", code: "5632" },
+  { name: "楊元鈞", email: "s113007_yangyuanchun@btsflip.tp.edu.tw", code: "4650" },
+  { name: "蕭弗盈", email: "s113017_hsiaofuying@btsflip.tp.edu.tw", code: "1886" },
+  { name: "許宸熙", email: "s113024_hsuchenshi@btsflip.com", code: "7420" },
+  { name: "余宜融", email: "s113030_yuyirong@btsflip.tp.edu.tw", code: "1957" },
+  // X 班 · 示範（email 留白，勿跑自動寄信／或僅寄信給你自己）
+  { name: "Chibi", email: "", code: "5502" },
 ];
 
 // 寄給學生的信件主旨與內容模板
