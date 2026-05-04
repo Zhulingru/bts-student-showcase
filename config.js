@@ -52,7 +52,7 @@ const CONFIG = {
   // ─── 個人簡介（選用）──────────────────────────────────
   // 需在下方啟用 appsScriptUrl（與 emoji／留言／驗證碼為同一組後端）。
   // false = 完全不顯示簡介區；之後要打開改成 true，並將 apps-script.gs 部署為新版本。
-  studentBioEnabled: false,
+  studentBioEnabled: true,
   studentBioMaxLength: 280,
 
   // ─── 訪客模式（選用）──────────────────────────────────
