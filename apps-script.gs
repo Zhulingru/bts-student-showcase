@@ -4,7 +4,7 @@
  * ================================================================
  *
  * 本檔案整合四段功能：
- *   1. 表單送出後，自動把檔案搬到對應學生的 Drive 資料夾並重新命名
+ *   1. 表單送出後，可選檢核「填表者 email ╳ STUDENTS_PRIVATE」再把檔案搬到對應學生資料夾
  *   2. 一次性把每個學生資料夾分享給對應 email（編輯權限）+ 寄驗證碼通知
  *   3. 學生身分驗證碼 API；Showcase 個人簡介讀寫（Bios）
  *   4. Student Showcase：反應、留言、（與上述共用 doGet/doPost）
@@ -31,6 +31,11 @@ const FIELD_STUDENT = "學生姓名";
 const FIELD_TITLE   = "標題";
 const FIELD_FILE    = "檔案上傳";
 
+// 表單若已設定「必須登入／蒐集電子郵件（已驗證）」，可開啟此選項：
+// 只有「填表者的 Google 帳號 email」與 STUDENTS_PRIVATE 裡該位學生的 email 相同時，才會搬檔到個人資料夾。
+// 不符時檔案留在表單預設上傳位置，並寫入執行記錄。緊急時可改 false 恢復舊行為（不建議常開）。
+const FORM_EMAIL_MATCH_ENABLED = true;
+
 
 // ============== 主流程：每次表單送出會自動執行 ==============
 
@@ -46,6 +51,13 @@ function onFormSubmitAutoSort(e) {
 
     if (fileIds.length === 0) {
       Logger.log(`${studentName}：無檔案（可能只填連結），略過`);
+      return;
+    }
+
+    const respondentEmail = getRespondentEmailFromNamedValues(nv);
+    const emailCheck = checkFormSubmitEmailPolicy(studentName, respondentEmail);
+    if (!emailCheck.ok) {
+      Logger.log(formEmailRejectLog(studentName, respondentEmail, emailCheck.reason));
       return;
     }
 
@@ -104,6 +116,7 @@ function backfillAll() {
     const idxStudent = headers.findIndex(h => h.includes(FIELD_STUDENT));
     const idxTitle   = headers.findIndex(h => h.includes(FIELD_TITLE));
     const idxFile    = headers.findIndex(h => h.includes(FIELD_FILE));
+    const idxEmail   = findRespondentEmailColumnIndex(headers);
     const idxTime    = headers.findIndex(h => h.includes("時間") || h.toLowerCase().includes("timestamp"));
     if (idxStudent < 0 || idxFile < 0) continue;
 
@@ -113,6 +126,13 @@ function backfillAll() {
       if (!studentName) continue;
       const fileIds = extractFileIds(row[idxFile]);
       if (fileIds.length === 0) continue;
+
+      const rowEmail = idxEmail >= 0 ? String(row[idxEmail] || "").trim() : "";
+      const emailCheck = checkFormSubmitEmailPolicy(studentName, rowEmail);
+      if (!emailCheck.ok) {
+        Logger.log(`[補跑略過 第 ${r + 1} 列] ${formEmailRejectLog(studentName, rowEmail, emailCheck.reason)}`);
+        continue;
+      }
 
       const studentFolder = findStudentFolder(studentName);
       if (!studentFolder) { notFound++; continue; }
@@ -145,7 +165,7 @@ function backfillAll() {
 }
 
 
-// ============== 工具函式（不用改） ==============
+// ============== 工具函式（表單 email 規則、檔案搬移等） ==============
 
 function getFirst(arr) {
   if (!arr) return "";
@@ -155,6 +175,115 @@ function getFirst(arr) {
 
 function normalizeName(s) {
   return String(s || "").trim().replace(/\s+/g, " ");
+}
+
+/** 與驗證碼比對相同：email 不分大小寫、去空白 */
+function normalizeEmail(s) {
+  return String(s == null ? "" : s).trim().toLowerCase();
+}
+
+/**
+ * 從試算表「表單回應」的欄位標題找出「填表者 email」欄。
+ * Google 表單中文版常見：電子郵件地址／英文：Email address。
+ */
+function findRespondentEmailColumnIndex(headers) {
+  const hints = [
+    "電子郵件地址",
+    "電子郵件",
+    "Email address",
+    "Email Address",
+    "Respondent Email",
+    "Your email address",
+  ];
+  for (const hint of hints) {
+    const i = headers.findIndex(h => String(h).trim() === hint);
+    if (i >= 0) return i;
+  }
+  return headers.findIndex(h => {
+    const t = String(h);
+    return (/email/i.test(t) || /電子|郵件|信箱/.test(t)) && !/學校|備註|說明/.test(t);
+  });
+}
+
+/**
+ * Spreadsheet onFormSubmit 的 namedValues：鍵為欄名，與試算表第一列相同。
+ */
+function getRespondentEmailFromNamedValues(nv) {
+  if (!nv) return "";
+  const preferredKeys = [
+    "電子郵件地址",
+    "電子郵件",
+    "Email address",
+    "Email Address",
+    "Respondent Email",
+    "Your email address",
+  ];
+  for (const k of preferredKeys) {
+    const v = getFirst(nv[k]);
+    if (v) return v;
+  }
+  for (const k of Object.keys(nv)) {
+    if (/學校|備註|說明|標題/.test(k)) continue;
+    if (!/email|電子|郵件|信箱/i.test(k)) continue;
+    const v = getFirst(nv[k]);
+    if (v && /@/.test(v)) return v;
+  }
+  return "";
+}
+
+/**
+ * @returns {{ ok: boolean, reason: string }}
+ *   reason: match | disabled | no-private-list | no-respondent-email | unknown-student | no-email-on-file | email-mismatch
+ */
+function checkFormSubmitEmailPolicy(studentName, respondentEmail) {
+  if (!FORM_EMAIL_MATCH_ENABLED) {
+    return { ok: true, reason: "disabled" };
+  }
+  // 範本／尚未貼上名單時不擋搬檔；一旦有名單即強制比對 email。
+  if (!STUDENTS_PRIVATE || STUDENTS_PRIVATE.length === 0) {
+    return { ok: true, reason: "no-private-list" };
+  }
+  const email = normalizeEmail(respondentEmail);
+  if (!email) {
+    return { ok: false, reason: "no-respondent-email" };
+  }
+  const record = findStudentPrivate(studentName);
+  if (!record) {
+    return { ok: false, reason: "unknown-student" };
+  }
+  const expected = normalizeEmail(record.email);
+  if (!expected) {
+    return { ok: false, reason: "no-email-on-file" };
+  }
+  if (email === expected) {
+    return { ok: true, reason: "match" };
+  }
+  return { ok: false, reason: "email-mismatch" };
+}
+
+function formEmailRejectLog(studentName, respondentEmail, reason) {
+  const em = respondentEmail ? maskEmail(normalizeEmail(respondentEmail)) : "（無）";
+  const name = normalizeName(studentName) || "?";
+  const lines = {
+    "no-respondent-email":
+      `未取得填表者電子郵件（請確認表單已設為「蒐集電子郵件」）。學生姓名：${name}`,
+    "unknown-student":
+      `學生「${name}」不在 STUDENTS_PRIVATE 名單，為安全起見不搬檔。填表帳號：${em}`,
+    "no-email-on-file":
+      `名單中「${name}」未填 email，無法比對 Google 帳號，不搬檔。填表帳號：${em}`,
+    "email-mismatch":
+      `填表帳號（${em}）與所選學生「${name}」在 STUDENTS_PRIVATE 的 email 不符，不搬檔（可能誤選他人姓名）`,
+  };
+  return lines[reason] || `email 檢查未通過（${reason}）。學生：${name}，填表：${em}`;
+}
+
+/** 執行記錄用：只顯示信箱前後段，減少完整個資進 log */
+function maskEmail(e) {
+  const s = String(e || "");
+  const at = s.indexOf("@");
+  if (at <= 1) return s ? s[0] + "***" : "";
+  if (at < 0) return s.slice(0, 2) + "***";
+  return s.slice(0, 2) + "***" + s.slice(at);
 }
 
 function extractFileIds(text) {
@@ -208,16 +337,17 @@ function sanitize(s) {
 //
 // 每一筆欄位：
 //   name  ：和網站 config.js 裡的 students[].name 必須完全一致
-//   email ：學生的 Google 帳號 email，用來分享資料夾與寄驗證碼通知
+//   email ：學生的 Google 帳號 email，用來分享資料夾與寄驗證碼通知；
+//           若 FORM_EMAIL_MATCH_ENABLED 為 true 且本名單非空，須以此 email 登入表單且「學生姓名」
+//           選該員，自動搬檔才會進行（見 onFormSubmitAutoSort）。
 //   code  ：該學生的驗證碼；學生在網站「選擇身分」時要輸入這串才會認證成功
 //           預設 4 碼數字，可用 generateMissingCodes() 自動產一組貼回來
 //           比對時不分大小寫、前後空白自動去掉
 //
 const STUDENTS_PRIVATE = [
   // 真實名單請只在 Apps Script 編輯器（或私有備份）維護，勿提交到公開 repo。
-  // 範例筆試格式（請改為實際資料後使用）：
+  // 範例格式：
   // { name: "王小明", email: "student@school.edu.tw", code: "1234" },
-  // email 必填才會收到「分享資料夾／驗證碼」通知；可先跑 generateMissingCodes() 產生 code 後整段貼回。
 ];
 
 // 寄給學生的信件主旨與內容模板
@@ -270,6 +400,12 @@ function _shareStudentFolders(opts) {
       noCode++;
       continue;
     }
+    const emailTrim = String(s.email == null ? "" : s.email).trim();
+    if (!emailTrim) {
+      Logger.log(`! ${s.name} 未填 email，略過分享／寄信（示範帳號可加老師信箱或手動分享）`);
+      skipped++;
+      continue;
+    }
 
     const folder = searchFolder(root, normalizeName(s.name));
     if (!folder) {
@@ -278,7 +414,7 @@ function _shareStudentFolders(opts) {
       continue;
     }
 
-    const email = s.email.toLowerCase();
+    const email = emailTrim.toLowerCase();
     const editors = folder.getEditors().map(u => String(u.getEmail()).toLowerCase());
     const alreadyEditor = editors.includes(email);
 
@@ -293,7 +429,7 @@ function _shareStudentFolders(opts) {
 
     if (dryRun) {
       Logger.log(
-        `[DRY RUN] ${s.name} <${s.email}>\n` +
+        `[DRY RUN] ${s.name} <${emailTrim}>\n` +
         `  - ${alreadyEditor ? "（已是編輯者，不會重加）" : "將加入編輯者"}\n` +
         `  - 將寄信（主旨：「${subject}」，含驗證碼 ${s.code}）`
       );
@@ -303,13 +439,13 @@ function _shareStudentFolders(opts) {
 
     try {
       if (!alreadyEditor) {
-        folder.addEditor(s.email);
+        folder.addEditor(emailTrim);
       } else {
         Logger.log(`- ${s.name} 已有編輯權限，不重複加`);
         skipped++;
       }
       MailApp.sendEmail({
-        to: s.email,
+        to: emailTrim,
         subject: subject,
         body: body,
       });
