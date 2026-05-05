@@ -33,7 +33,7 @@ const FIELD_FILE    = "檔案上傳";
 
 // 表單若已設定「必須登入／蒐集電子郵件（已驗證）」，可開啟此選項：
 // 只有「填表者的 Google 帳號 email」與 STUDENTS_PRIVATE 裡該位學生的 email 相同時，才會搬檔到個人資料夾。
-// 不符時檔案留在表單預設上傳位置，並寫入執行記錄。緊急時可改 false 恢復舊行為（不建議常開）。
+// 不符時不搬檔、寫入執行記錄；試算表列與檔案請自行手動清理。緊急時可改 false 關閉比對。
 const FORM_EMAIL_MATCH_ENABLED = true;
 
 
@@ -45,19 +45,19 @@ function onFormSubmitAutoSort(e) {
     const studentName = getFirst(nv[FIELD_STUDENT]);
     if (!studentName) { Logger.log("沒有學生姓名，略過"); return; }
 
+    const respondentEmail = getRespondentEmailFromNamedValues(nv);
+    const emailCheck = checkFormSubmitEmailPolicy(studentName, respondentEmail);
+    if (!emailCheck.ok) {
+      Logger.log(formEmailRejectLog(studentName, respondentEmail, emailCheck.reason));
+      return;
+    }
+
     const title    = getFirst(nv[FIELD_TITLE]) || "未命名";
     const fileCell = getFirst(nv[FIELD_FILE])  || "";
     const fileIds  = extractFileIds(fileCell);
 
     if (fileIds.length === 0) {
       Logger.log(`${studentName}：無檔案（可能只填連結），略過`);
-      return;
-    }
-
-    const respondentEmail = getRespondentEmailFromNamedValues(nv);
-    const emailCheck = checkFormSubmitEmailPolicy(studentName, respondentEmail);
-    if (!emailCheck.ok) {
-      Logger.log(formEmailRejectLog(studentName, respondentEmail, emailCheck.reason));
       return;
     }
 
