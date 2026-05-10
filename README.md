@@ -383,6 +383,61 @@ const STUDENTS_PRIVATE = [
 
 ---
 
+## 第五部分（選用）：放學長姐的海報當範例（約 10 分鐘）
+
+如果你手邊有過去學長姐做過的專題海報，可以把它們放進網站作為**靜態參考素材**，學生在頁面最下方會看到「歷屆作品參考」區塊，依學長姐分組、可橫向滑動，點圖會跳出大圖檢視（可左右翻頁）。
+
+這個區塊**完全不依賴 Google 試算表或 Apps Script**，純靜態檔案，學生也不會去按 emoji 或留言，純粹就是「看看別人做過什麼」。
+
+### 第一次匯入
+
+1. 在專案根目錄建一個資料夾叫 `六年級網站整理素材`（或你慣用的名字）
+2. 把學長姐的海報丟進去，檔名一律是「**中文姓名 + 編號 + 副檔名**」，例如：
+   ```
+   品睿1.png
+   品睿2.png
+   品睿3.png
+   宥翔1.png
+   宥翔2.png
+   ...
+   ```
+   每位幾張都可以、檔名不要重複即可。支援 `.png` `.jpg` `.jpeg` `.webp` `.gif`
+3. 打開 `tools/build-inspiration.py`，找到 `NAMES` 字典，幫每位學長姐補上「中文 → 拼音 slug」對照（slug 必須是純小寫英數字，例如 `pinrui`、`youxiang`）
+4. 終端機執行：
+   ```bash
+   python3 tools/build-inspiration.py
+   ```
+5. 腳本會做兩件事：
+   - 把素材夾裡的海報**複製**進 `inspiration/`，順便把中文檔名轉成拼音（例如 `品睿1.png` → `pinrui1.png`），這樣網址乾淨、不會有中文編碼問題
+   - 重建 `inspiration/manifest.json`（網站讀的清單檔）
+6. 推上 GitHub，網站底部就會多出「歷屆作品參考」區塊
+
+### 之後想加新海報
+
+- 新增**同一位**學長姐的新海報：把檔案丟進素材夾，編號接續（例如 `品睿6.png`）→ 跑 `python3 tools/build-inspiration.py` → 推 GitHub
+- 新增**新一位**學長姐：先在 `tools/build-inspiration.py` 的 `NAMES` 字典加一行（中文 → pinyin），再丟檔案，再跑一次腳本
+
+### 想直接編輯哪一張要顯示？
+
+`inspiration/manifest.json` 是網頁實際讀的清單，格式：
+
+```json
+{
+  "students": [
+    { "slug": "pinrui", "name": "品睿",
+      "files": ["pinrui1.png", "pinrui2.png", "pinrui3.png", "pinrui4.png", "pinrui5.png"] }
+  ]
+}
+```
+
+想暫時隱藏某張海報？把該檔名從 `files` 陣列拿掉即可（檔案還在 `inspiration/` 裡）。重跑腳本會以實體檔案為準重建清單，所以「手動編輯 manifest」與「跑腳本重建」是二擇一的工作流。
+
+### 想完全關掉這個區塊
+
+把 `inspiration/manifest.json` 刪掉（或把裡面 `students` 改成空陣列），網站就會自動隱藏這一區，不影響其他功能。
+
+---
+
 ## 給學生的使用說明（可直接轉貼）
 
 嗨同學，這是我們班的專題歷程牆：
@@ -436,12 +491,17 @@ const STUDENTS_PRIVATE = [
 
 ```
 student-showcase/
-├── index.html        ← 網頁主結構，不用改
-├── style.css         ← 網頁外觀，想換顏色可以改這個
-├── app.js            ← 網頁邏輯，不用改
-├── config.js         ← ⚡ 唯一需要編輯的檔案（設定、學生名單）
-├── apps-script.gs    ← 要啟用 emoji 反應與留言時，把這個內容貼到 Apps Script
-└── README.md         ← 就是你正在讀的這份
+├── index.html                     ← 網頁主結構，不用改
+├── style.css                      ← 網頁外觀，想換顏色可以改這個
+├── app.js                         ← 網頁邏輯，不用改
+├── config.js                      ← ⚡ 唯一需要編輯的檔案（設定、學生名單）
+├── apps-script.gs                 ← 要啟用 emoji 反應與留言時，把這個內容貼到 Apps Script
+├── inspiration/                   ← 學長姐海報（選用，見「第五部分」）
+│   ├── manifest.json              ←  網站實際讀的清單，由腳本生成
+│   └── *.png                      ←  海報圖檔，檔名都是拼音 slug + 編號
+├── tools/
+│   └── build-inspiration.py       ← 學長姐海報整理 / manifest 產生腳本
+└── README.md                      ← 就是你正在讀的這份
 ```
 
 祝教學順利！

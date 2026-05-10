@@ -75,6 +75,18 @@
         <!-- 由 JS 動態產生分班區塊 -->
       </div>
     </section>
+
+    <!-- 歷屆作品參考（學長姐海報） -->
+    <section id="inspiration-section" class="section inspiration-section" aria-labelledby="inspiration-heading" hidden>
+      <div class="section-heading">
+        <h2 id="inspiration-heading">歷屆作品參考</h2>
+        <span class="section-index">03</span>
+        <span class="section-sub" id="inspiration-sub">學長姐的專題海報，點圖看大圖</span>
+      </div>
+      <div id="inspiration-container" class="inspiration-container">
+        <!-- 由 JS 依 inspiration/manifest.json 動態產生 -->
+      </div>
+    </section>
   </main>
 
   <!-- 身分選擇器 -->
@@ -102,6 +114,18 @@
       </div>
       <div id="modal-body" class="modal-body"></div>
     </div>
+  </div>
+
+  <!-- 歷屆作品大圖檢視 -->
+  <div id="inspiration-lightbox" class="inspiration-lightbox" hidden aria-hidden="true">
+    <div class="inspiration-lightbox-backdrop" data-close-lightbox></div>
+    <button class="inspiration-lightbox-nav prev" data-lightbox-prev aria-label="上一張">‹</button>
+    <button class="inspiration-lightbox-nav next" data-lightbox-next aria-label="下一張">›</button>
+    <button class="inspiration-lightbox-close" data-close-lightbox aria-label="關閉">×</button>
+    <figure class="inspiration-lightbox-figure" role="dialog" aria-modal="true" aria-label="歷屆作品大圖檢視">
+      <img id="inspiration-lightbox-img" alt="" />
+      <figcaption id="inspiration-lightbox-caption"></figcaption>
+    </figure>
   </div>
 
   <footer class="site-footer">

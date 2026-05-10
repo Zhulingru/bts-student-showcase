@@ -1458,6 +1458,171 @@
     if (e.key === "Escape" && !modalEl.hidden) closeModal();
   });
 
+  // ---------- 歷屆作品參考（Inspiration） ----------
+  // 資料來源：inspiration/manifest.json，由 tools/build-inspiration.py 產生
+  // 行為：依學長姐分組、可橫向滑動的小輪播；點圖開 lightbox，可左右翻同一位的其他海報
+  const INSPIRATION_MANIFEST_URL = "inspiration/manifest.json";
+  const INSPIRATION_BASE = "inspiration/";
+
+  const inspirationSectionEl = document.getElementById("inspiration-section");
+  const inspirationContainerEl = document.getElementById("inspiration-container");
+  const inspirationSubEl = document.getElementById("inspiration-sub");
+  const lightboxEl = document.getElementById("inspiration-lightbox");
+  const lightboxImgEl = document.getElementById("inspiration-lightbox-img");
+  const lightboxCaptionEl = document.getElementById("inspiration-lightbox-caption");
+  const lightboxPrevBtn = lightboxEl ? lightboxEl.querySelector("[data-lightbox-prev]") : null;
+  const lightboxNextBtn = lightboxEl ? lightboxEl.querySelector("[data-lightbox-next]") : null;
+
+  let inspirationStudents = [];
+  let lightboxState = null; // { studentIndex, fileIndex }
+
+  async function loadInspiration() {
+    if (!inspirationContainerEl) return;
+    try {
+      const res = await fetch(INSPIRATION_MANIFEST_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const students = Array.isArray(data && data.students) ? data.students : [];
+      inspirationStudents = students.filter(s => s && Array.isArray(s.files) && s.files.length > 0);
+      renderInspiration();
+    } catch (err) {
+      // 沒有 manifest（例如老師還沒跑 build script）就直接隱藏整區
+      console.info("[inspiration] 沒有讀到 manifest，跳過渲染：", err.message || err);
+      inspirationSectionEl.hidden = true;
+    }
+  }
+
+  function renderInspiration() {
+    if (!inspirationContainerEl) return;
+    if (!inspirationStudents.length) {
+      inspirationSectionEl.hidden = true;
+      return;
+    }
+
+    const totalPosters = inspirationStudents.reduce((n, s) => n + s.files.length, 0);
+    if (inspirationSubEl) {
+      inspirationSubEl.textContent =
+        `${inspirationStudents.length} 位學長姐 · ${totalPosters} 張海報 · 點圖看大圖`;
+    }
+
+    const cardHtml = (s, sIdx) => {
+      const cover = s.files[0];
+      const countLabel = s.files.length > 1 ? `${s.files.length} 張` : "1 張";
+      return `
+        <button class="inspiration-card"
+                type="button"
+                data-student-idx="${sIdx}"
+                aria-label="開啟 ${escapeHtml(s.name)} 的 ${s.files.length} 張海報">
+          <div class="inspiration-card-media">
+            <img src="${escapeHtml(INSPIRATION_BASE + cover)}"
+                 alt="${escapeHtml(s.name)} 的海報"
+                 loading="lazy"
+                 decoding="async" />
+            ${s.files.length > 1
+              ? `<span class="inspiration-card-count">${countLabel}</span>`
+              : ""}
+          </div>
+          <div class="inspiration-card-foot">
+            <span class="inspiration-card-name">${escapeHtml(s.name)}</span>
+            <span class="inspiration-card-meta">${countLabel}</span>
+          </div>
+        </button>
+      `;
+    };
+
+    // 依姓名順序平均分到 3 列，每列獨立橫向捲軸（27 → 9 / 9 / 9；不整除時前面的列會多一張）
+    const ROWS = 3;
+    const total = inspirationStudents.length;
+    const baseCount = Math.ceil(total / ROWS);
+    const rows = [];
+    for (let r = 0; r < ROWS; r++) {
+      const start = r * baseCount;
+      const slice = inspirationStudents
+        .slice(start, start + baseCount)
+        .map((s, i) => ({ s, originalIdx: start + i }));
+      if (slice.length) rows.push(slice);
+    }
+
+    inspirationContainerEl.innerHTML = rows.map(row => `
+      <div class="inspiration-row">
+        ${row.map(({ s, originalIdx }) => cardHtml(s, originalIdx)).join("")}
+      </div>
+    `).join("");
+
+    inspirationSectionEl.hidden = false;
+  }
+
+  function openLightbox(studentIndex, fileIndex) {
+    if (!lightboxEl) return;
+    const s = inspirationStudents[studentIndex];
+    if (!s || !s.files[fileIndex]) return;
+    lightboxState = { studentIndex, fileIndex };
+    updateLightbox();
+    lightboxEl.hidden = false;
+    lightboxEl.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  }
+
+  function updateLightbox() {
+    if (!lightboxState) return;
+    const { studentIndex, fileIndex } = lightboxState;
+    const s = inspirationStudents[studentIndex];
+    if (!s) return;
+    const file = s.files[fileIndex];
+    lightboxImgEl.src = INSPIRATION_BASE + file;
+    lightboxImgEl.alt = `${s.name} 的海報 ${fileIndex + 1}`;
+    lightboxCaptionEl.textContent = s.files.length > 1
+      ? `${s.name} · ${fileIndex + 1} / ${s.files.length}`
+      : s.name;
+    const onlyOne = s.files.length <= 1;
+    if (lightboxPrevBtn) lightboxPrevBtn.hidden = onlyOne;
+    if (lightboxNextBtn) lightboxNextBtn.hidden = onlyOne;
+  }
+
+  function closeLightbox() {
+    if (!lightboxEl || lightboxEl.hidden) return;
+    lightboxEl.hidden = true;
+    lightboxEl.setAttribute("aria-hidden", "true");
+    lightboxImgEl.src = "";
+    lightboxState = null;
+    if (modalEl.hidden && identityModalEl.hidden) {
+      document.body.style.overflow = "";
+    }
+  }
+
+  function lightboxStep(delta) {
+    if (!lightboxState) return;
+    const s = inspirationStudents[lightboxState.studentIndex];
+    if (!s) return;
+    const len = s.files.length;
+    if (len <= 1) return;
+    lightboxState.fileIndex = (lightboxState.fileIndex + delta + len) % len;
+    updateLightbox();
+  }
+
+  if (inspirationContainerEl) {
+    inspirationContainerEl.addEventListener("click", (e) => {
+      const card = e.target.closest(".inspiration-card");
+      if (!card) return;
+      const sIdx = Number(card.dataset.studentIdx);
+      if (Number.isFinite(sIdx)) openLightbox(sIdx, 0);
+    });
+  }
+
+  if (lightboxEl) {
+    lightboxEl.querySelectorAll("[data-close-lightbox]").forEach(el => {
+      el.addEventListener("click", closeLightbox);
+    });
+    if (lightboxPrevBtn) lightboxPrevBtn.addEventListener("click", () => lightboxStep(-1));
+    if (lightboxNextBtn) lightboxNextBtn.addEventListener("click", () => lightboxStep(1));
+    document.addEventListener("keydown", (e) => {
+      if (lightboxEl.hidden) return;
+      if (e.key === "Escape") { closeLightbox(); return; }
+      if (e.key === "ArrowLeft")  { lightboxStep(-1); return; }
+      if (e.key === "ArrowRight") { lightboxStep(1); return; }
+    });
+  }
+
   // ---------- 主流程 ----------
   async function load() {
     setStatus("warn", "更新中…");
@@ -1526,6 +1691,9 @@
 
   load();
   setInterval(load, Math.max(10, CONFIG.refreshIntervalSeconds) * 1000);
+
+  // 學長姐海報是靜態素材，載入一次即可（後續更新請重跑 tools/build-inspiration.py 並重新部署）
+  loadInspiration();
 
   if (socialEnabled) {
     fetchSocial();

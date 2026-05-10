@@ -5,3 +5,9 @@
 # Editor / OS
 Thumbs.db
 *.swp
+
+# 學長姐海報原始素材夾（中文檔名）
+# 跑過 tools/build-inspiration.py 之後，內容已轉成拼音複製進 inspiration/ 並提交，
+# 原始夾保留在本機方便對照即可，不需要進 repo。若你的場景需要保留，移除以下兩行。
+六年級網站整理素材/
+inspiration-source/
