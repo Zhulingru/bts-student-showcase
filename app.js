@@ -1682,22 +1682,102 @@
   }
 
   document.getElementById("refresh-btn").addEventListener("click", () => {
-    load();
-    fetchSocial();
+    // 手動刷新：忽略 idle / 隱藏狀態，強制執行一輪
+    dataPoller.runNow();
+    socialPoller.runNow();
+  });
+
+  // ---------- 智慧排程：頁籤隱藏 / 使用者閒置時自動暫停 ----------
+  // 目的：避免「掛網但沒人看」的情境下持續打 Google Sheets / Apps Script，
+  //      減少 CPU、網路與後端 quota 消耗。整體行為：
+  //   - document.hidden（切到別的分頁／視窗最小化）→ 完全暫停輪詢
+  //   - 使用者超過 IDLE_AFTER_MS 沒任何動作 → 暫停輪詢
+  //   - 任一條件解除（回到頁面 / 重新有動作）→ 立刻抓一次，再恢復常態節奏
+  //   - 自己按 emoji 或留言：採樂觀更新（既有邏輯），不依賴輪詢即可看到變化
+  const IDLE_AFTER_MS = 10 * 60 * 1000; // 10 分鐘沒動算閒置
+
+  function makeSmartPoller(fn, intervalSeconds, label) {
+    const intervalMs = Math.max(5, intervalSeconds) * 1000;
+    let timerId = null;
+    let lastRunAt = 0;
+    let lastActivityAt = Date.now();
+    let inflight = false;
+
+    function isActiveTab() { return !document.hidden; }
+    function isIdle() { return Date.now() - lastActivityAt > IDLE_AFTER_MS; }
+    function shouldRun() { return isActiveTab() && !isIdle(); }
+
+    async function tick(forceImmediate = false) {
+      if (!forceImmediate && !shouldRun()) return;
+      if (inflight) return;
+      inflight = true;
+      lastRunAt = Date.now();
+      try {
+        await fn();
+      } catch (err) {
+        console.warn(`[poller:${label}] tick failed`, err);
+      } finally {
+        inflight = false;
+      }
+    }
+
+    function runIfStale() {
+      if (Date.now() - lastRunAt >= intervalMs) tick();
+    }
+
+    function start() {
+      if (timerId) return;
+      tick();
+      timerId = setInterval(tick, intervalMs);
+    }
+
+    function noteActivity() {
+      const wasIdle = isIdle();
+      lastActivityAt = Date.now();
+      if (wasIdle && isActiveTab()) runIfStale();
+    }
+
+    function noteVisibilityChange() {
+      if (isActiveTab()) runIfStale();
+    }
+
+    return {
+      start,
+      runNow: () => tick(true),
+      noteActivity,
+      noteVisibilityChange,
+    };
+  }
+
+  const dataPoller = makeSmartPoller(load, CONFIG.refreshIntervalSeconds, "data");
+  const socialPoller = socialEnabled
+    ? makeSmartPoller(fetchSocial, CONFIG.socialRefreshIntervalSeconds || 10, "social")
+    : null;
+
+  // 全域 activity 監聽：throttle 成每 5 秒最多通知一次 poller
+  let lastActivityNotify = 0;
+  function onUserActivity() {
+    const now = Date.now();
+    if (now - lastActivityNotify < 5000) return;
+    lastActivityNotify = now;
+    dataPoller.noteActivity();
+    if (socialPoller) socialPoller.noteActivity();
+  }
+  ["mousemove", "keydown", "scroll", "touchstart", "click"].forEach(evt => {
+    window.addEventListener(evt, onUserActivity, { passive: true });
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    dataPoller.noteVisibilityChange();
+    if (socialPoller) socialPoller.noteVisibilityChange();
   });
 
   // 初始化身分 chip 與社交功能
   refreshIdentityChip();
 
-  load();
-  setInterval(load, Math.max(10, CONFIG.refreshIntervalSeconds) * 1000);
+  dataPoller.start();
+  if (socialPoller) socialPoller.start();
 
   // 學長姐海報是靜態素材，載入一次即可（後續更新請重跑 tools/build-inspiration.py 並重新部署）
   loadInspiration();
-
-  if (socialEnabled) {
-    fetchSocial();
-    const socialInterval = Math.max(5, CONFIG.socialRefreshIntervalSeconds || 10);
-    setInterval(fetchSocial, socialInterval * 1000);
-  }
 })();
