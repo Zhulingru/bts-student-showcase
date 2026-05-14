@@ -39,21 +39,30 @@ const FIELD_FILE    = "檔案上傳";
 // 想恢復防冒名比對請改回 true，並確認 STUDENTS_PRIVATE 內每位學生的 email 都正確。
 const FORM_EMAIL_MATCH_ENABLED = false;
 
+// 表單送出後，若試算表已有「同學生 + 同標題」的舊列，自動刪除舊列、保留剛送出的新列。
+//   - 用途：學生重新上傳相同主題的最新版本時，歷程牆只會顯示最新一筆，不會重複
+//   - 不會動 Drive 上的檔案（保留所有版本，需要時可手動清）
+//   - 比對規則：學生姓名（前後空白忽略）+ 標題（前後空白忽略）完全相同
+//   - 想關閉自動覆蓋改回 false 即可，事後仍可用 removeDuplicateRows() 手動清理
+const AUTO_OVERWRITE_ON_RESUBMIT = true;
+
 
 // ============== 主流程：每次表單送出會自動執行 ==============
 
 function onFormSubmitAutoSort(e) {
+  let studentName = "";
+  let title = "";
   try {
     const nv = e.namedValues || {};
-    const studentName = getFirst(nv[FIELD_STUDENT]);
+    studentName = getFirst(nv[FIELD_STUDENT]);
     if (!studentName) { Logger.log("沒有學生姓名，略過"); return; }
 
-    const title    = getFirst(nv[FIELD_TITLE]) || "未命名";
+    title = getFirst(nv[FIELD_TITLE]) || "未命名";
     const fileCell = getFirst(nv[FIELD_FILE])  || "";
     const fileIds  = extractFileIds(fileCell);
 
     if (fileIds.length === 0) {
-      Logger.log(`${studentName}：無檔案（可能只填連結），略過`);
+      Logger.log(`${studentName}：無檔案（可能只填連結），略過搬檔（仍會檢查同主題覆蓋）`);
       return;
     }
 
@@ -83,7 +92,63 @@ function onFormSubmitAutoSort(e) {
     Logger.log(`✓ 已把 ${fileIds.length} 個檔案搬到 ${studentName} 資料夾`);
   } catch (err) {
     Logger.log("錯誤：" + err + "\n" + err.stack);
+  } finally {
+    // 不論上面搬檔結果如何，只要學生姓名 + 標題有效，就嘗試清掉同學生＋同主題的舊列。
+    // 這樣學生重新上傳相同主題的最新版本時，歷程牆只會顯示最新一筆。
+    if (AUTO_OVERWRITE_ON_RESUBMIT && studentName && title) {
+      try {
+        _overwriteOlderRowsOnResubmit(e, studentName, title);
+      } catch (err) {
+        Logger.log("自動覆蓋舊紀錄失敗：" + err);
+      }
+    }
   }
+}
+
+/**
+ * 找出「同學生 + 同標題」的舊列，刪除舊列，保留剛剛送出的新列。
+ * 由 onFormSubmit 觸發；e.range 指向剛 append 的新列。
+ * Drive 上的檔案不會被動到。
+ */
+function _overwriteOlderRowsOnResubmit(e, studentName, title) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  const newRowNum = e.range.getRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return;
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const idxStudent = headers.findIndex(h => h.includes(FIELD_STUDENT));
+  const idxTitle   = headers.findIndex(h => h.includes(FIELD_TITLE));
+  if (idxStudent < 0 || idxTitle < 0) return;
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const data = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  const targetStudent = normalizeName(studentName);
+  const targetTitle = normalizeName(title);
+
+  const toDelete = [];
+  for (let i = 0; i < data.length; i++) {
+    const rowNum = i + 2;       // 試算表實際列號（+1 表頭 +1 才是 1-indexed）
+    if (rowNum === newRowNum) continue;  // 跳過剛新增的這一列
+    const rs = normalizeName(data[i][idxStudent]);
+    const rt = normalizeName(data[i][idxTitle]);
+    if (rs === targetStudent && rt === targetTitle) {
+      toDelete.push(rowNum);
+    }
+  }
+
+  if (toDelete.length === 0) return;
+
+  // 由底往上刪，避免位移影響後續 row index
+  toDelete.sort((a, b) => b - a);
+  toDelete.forEach(r => sheet.deleteRow(r));
+  Logger.log(
+    `↻ 自動覆蓋：${studentName} · 「${title}」` +
+    `刪除 ${toDelete.length} 列舊紀錄（保留新列 #${newRowNum}），Drive 檔案不動`
+  );
 }
 
 
@@ -814,6 +879,8 @@ function jsonOut(obj) {
 // 適用情境（兩個典型問題）：
 //   (1) 學生有送出表單、檔案傳到 Drive，但沒被搬到該學生的個人資料夾
 //   (2) 學生不小心送兩次（或同一份檔案上傳兩次），歷程牆上同一筆出現重複
+//       （現在 AUTO_OVERWRITE_ON_RESUBMIT=true 後新送的會自動覆蓋舊的，
+//        本工具僅用於處理舊資料）
 //
 // 標準流程：
 //   step 1. 跑 `diagnoseShowcaseSheet()`：只看不動，把兩類問題列出來
