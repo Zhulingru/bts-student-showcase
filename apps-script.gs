@@ -6,7 +6,7 @@
  * 本檔案整合四段功能：
  *   1. 表單送出後，可選檢核「填表者 email ╳ STUDENTS_PRIVATE」再把檔案搬到對應學生資料夾
  *   2. 一次性把每個學生資料夾分享給對應 email（編輯權限）+ 寄驗證碼通知
- *   3. 學生身分驗證碼 API；Showcase 個人簡介讀寫（Bios）
+ *   3. 學生身分驗證碼 API；Showcase 個人簡介讀寫(Bios)
  *   4. Student Showcase：反應、留言、（與上述共用 doGet/doPost）
  *
  * 前兩段是 Drive／表單檔案管理；後端 Web App（doGet／doPost）承載身分驗證、個人簡介、反應與留言，互相可分開維護。
@@ -33,8 +33,11 @@ const FIELD_FILE    = "檔案上傳";
 
 // 表單若已設定「必須登入／蒐集電子郵件（已驗證）」，可開啟此選項：
 // 只有「填表者的 Google 帳號 email」與 STUDENTS_PRIVATE 裡該位學生的 email 相同時，才會搬檔到個人資料夾。
-// 不符時不搬檔、寫入執行記錄；試算表列與檔案請自行手動清理。緊急時可改 false 關閉比對。
-const FORM_EMAIL_MATCH_ENABLED = true;
+// 不符時檔案留在表單預設上傳位置，並寫入執行記錄。
+//
+// 目前設定：false（不檢查 email，「學生姓名」選誰就搬到誰的資料夾）。
+// 想恢復防冒名比對請改回 true，並確認 STUDENTS_PRIVATE 內每位學生的 email 都正確。
+const FORM_EMAIL_MATCH_ENABLED = false;
 
 
 // ============== 主流程：每次表單送出會自動執行 ==============
@@ -45,19 +48,19 @@ function onFormSubmitAutoSort(e) {
     const studentName = getFirst(nv[FIELD_STUDENT]);
     if (!studentName) { Logger.log("沒有學生姓名，略過"); return; }
 
-    const respondentEmail = getRespondentEmailFromNamedValues(nv);
-    const emailCheck = checkFormSubmitEmailPolicy(studentName, respondentEmail);
-    if (!emailCheck.ok) {
-      Logger.log(formEmailRejectLog(studentName, respondentEmail, emailCheck.reason));
-      return;
-    }
-
     const title    = getFirst(nv[FIELD_TITLE]) || "未命名";
     const fileCell = getFirst(nv[FIELD_FILE])  || "";
     const fileIds  = extractFileIds(fileCell);
 
     if (fileIds.length === 0) {
       Logger.log(`${studentName}：無檔案（可能只填連結），略過`);
+      return;
+    }
+
+    const respondentEmail = getRespondentEmailFromNamedValues(nv);
+    const emailCheck = checkFormSubmitEmailPolicy(studentName, respondentEmail);
+    if (!emailCheck.ok) {
+      Logger.log(formEmailRejectLog(studentName, respondentEmail, emailCheck.reason));
       return;
     }
 
@@ -345,9 +348,15 @@ function sanitize(s) {
 //           比對時不分大小寫、前後空白自動去掉
 //
 const STUDENTS_PRIVATE = [
-  // 真實名單請只在 Apps Script 編輯器（或私有備份）維護，勿提交到公開 repo。
+  // ⚠️ 真實名單（姓名 / 學校 email / 驗證碼）為個資，請只在 Apps Script 編輯器
+  //    或你的私有備份維護，不要提交到公開 repo。
+  //
+  // 本 repo 內這個陣列**故意保持空白**，讓 GitHub 上只看得到結構、看不到真實資料；
+  // 你部署時把實際名單貼進 Apps Script 編輯器即可。
+  //
   // 範例格式：
-  // { name: "王小明", email: "student@school.edu.tw", code: "1234" },
+  // { name: "王小明", email: "xiaoming@school.edu.tw", code: "1234" },
+  // { name: "陳美麗", email: "meili@school.edu.tw",    code: "5678" },
 ];
 
 // 寄給學生的信件主旨與內容模板
@@ -795,4 +804,227 @@ function jsonOut(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+// ================================================================
+// 維運工具：診斷未分類檔案與重複上傳（事後修補用）
+// ================================================================
+//
+// 適用情境（兩個典型問題）：
+//   (1) 學生有送出表單、檔案傳到 Drive，但沒被搬到該學生的個人資料夾
+//   (2) 學生不小心送兩次（或同一份檔案上傳兩次），歷程牆上同一筆出現重複
+//
+// 標準流程：
+//   step 1. 跑 `diagnoseShowcaseSheet()`：只看不動，把兩類問題列出來
+//   step 2. 跑 `resortMisplacedFiles()`：把未分類的檔案搬到該學生資料夾
+//                                      （就是 backfillAll() 的別名）
+//   step 3. 跑 `removeDuplicateRows(true)`：模擬刪除重複列，看會刪到哪些
+//   step 4. 確認 OK 再跑 `removeDuplicateRows(false)`：真的刪掉舊的那列
+//          → 保留最新一列（時間最近的那筆），舊的列被刪除
+//          → Drive 上的檔案保持不動（依老師指示）
+//
+// 後端 sheet（Reactions / Comments / Bios）會自動跳過，不會被誤掃。
+// ================================================================
+
+function diagnoseShowcaseSheet() {
+  const report = _scanShowcaseSheet();
+
+  Logger.log("=== 1. 檔案沒進該學生資料夾 ===");
+  if (report.misplaced.length === 0) {
+    Logger.log("（沒有發現未分類的檔案）");
+  } else {
+    report.misplaced.forEach(m => {
+      Logger.log(
+        `[分頁「${m.sheetName}」第 ${m.row} 列] ${m.studentName} · 「${m.title}」` +
+        `\n    檔案 ${m.fileId} ── ${m.reason}`
+      );
+    });
+    Logger.log(`\n→ 修復方式：執行 resortMisplacedFiles()，會嘗試搬到正確位置。`);
+  }
+
+  Logger.log("");
+  Logger.log("=== 2. 疑似重複上傳（同一位學生 + 完全相同的標題） ===");
+  if (report.duplicateGroups.length === 0) {
+    Logger.log("（沒有發現重複紀錄）");
+  } else {
+    report.duplicateGroups.forEach(g => {
+      const rowsDesc = g.rows
+        .slice()
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .map(r => `    - 第 ${r.row} 列 · ${_fmtTs(r.timestamp)}`)
+        .join("\n");
+      Logger.log(
+        `${g.studentName} · 「${g.title}」（分頁「${g.sheetName}」共 ${g.rows.length} 列）：\n${rowsDesc}`
+      );
+    });
+    Logger.log(
+      `\n→ 修復方式：先跑 removeDuplicateRows(true) 看會刪哪些（模擬）；` +
+      `\n  確認 OK 再跑 removeDuplicateRows(false) 實際刪除（保留最新一列、刪除舊列；檔案不動）。`
+    );
+  }
+}
+
+/** resortMisplacedFiles() 是 backfillAll() 的別名，命名更貼近本情境，方便老師找到。 */
+function resortMisplacedFiles() {
+  backfillAll();
+}
+
+function removeDuplicateRows(dryRun) {
+  // 安全預設：除非明確傳 false，否則一律 dry run
+  if (dryRun !== false) dryRun = true;
+
+  const report = _scanShowcaseSheet();
+  if (report.duplicateGroups.length === 0) {
+    Logger.log("沒有找到重複紀錄，無事可做。");
+    return;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const bySheet = {}; // sheetName -> [rowNumber, ...]
+  let totalToDelete = 0;
+
+  Logger.log(dryRun ? "=== DRY RUN：只模擬，不真的刪 ===" : "=== 正式執行刪除 ===");
+  for (const g of report.duplicateGroups) {
+    // 由新到舊排；第一個保留，其餘刪除
+    const sorted = g.rows.slice().sort((a, b) => b.timestamp - a.timestamp);
+    const keep = sorted[0];
+    const toRemove = sorted.slice(1);
+    if (toRemove.length === 0) continue;
+
+    Logger.log(
+      `${g.studentName} · 「${g.title}」：保留第 ${keep.row} 列（${_fmtTs(keep.timestamp)}），` +
+      `${dryRun ? "將刪" : "已刪"} ${toRemove.map(r => `第 ${r.row} 列(${_fmtTs(r.timestamp)})`).join("、")}`
+    );
+
+    if (!bySheet[g.sheetName]) bySheet[g.sheetName] = [];
+    toRemove.forEach(r => {
+      bySheet[g.sheetName].push(r.row);
+      totalToDelete++;
+    });
+  }
+
+  if (dryRun) {
+    Logger.log(`\n[DRY RUN] 共會刪 ${totalToDelete} 列。確認後請執行 removeDuplicateRows(false)。`);
+    return;
+  }
+
+  // 同分頁內由底往上刪，避免 row index 位移
+  Object.keys(bySheet).forEach(sheetName => {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      Logger.log(`! 找不到分頁「${sheetName}」，跳過`);
+      return;
+    }
+    const rows = bySheet[sheetName].slice().sort((a, b) => b - a);
+    rows.forEach(r => sheet.deleteRow(r));
+    Logger.log(`✓ 分頁「${sheetName}」刪除 ${rows.length} 列完成`);
+  });
+  Logger.log(`\n完成：共刪 ${totalToDelete} 列。Drive 上的檔案保持不動，需要時請手動清理。`);
+}
+
+function _fmtTs(d) {
+  if (!(d instanceof Date) || isNaN(d.getTime())) return "（無時間）";
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm");
+}
+
+/**
+ * 統一掃描：回傳 { misplaced, duplicateGroups }
+ *  - misplaced：檔案沒在該學生資料夾內的紀錄
+ *  - duplicateGroups：同一學生 + 完全相同標題 ≥2 列
+ *
+ * 只掃「表單回應」類分頁；自動跳過 Reactions / Comments / Bios。
+ */
+function _scanShowcaseSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const backendSheets = new Set([REACTIONS_SHEET, COMMENTS_SHEET, BIOS_SHEET]);
+  const misplaced = [];
+  const duplicateGroups = [];
+
+  // 快取「學生資料夾」與「檔案的父資料夾集合」減少 Drive 呼叫
+  const folderCache = {};   // studentName -> Folder | null
+  function getStudentFolder(name) {
+    if (folderCache.hasOwnProperty(name)) return folderCache[name];
+    const f = findStudentFolder(name);
+    folderCache[name] = f;
+    return f;
+  }
+
+  for (const sheet of ss.getSheets()) {
+    const sheetName = sheet.getName();
+    if (backendSheets.has(sheetName)) continue;
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) continue;
+    const headers = data[0].map(h => String(h).trim());
+    const idxStudent = headers.findIndex(h => h.includes(FIELD_STUDENT));
+    const idxTitle   = headers.findIndex(h => h.includes(FIELD_TITLE));
+    const idxFile    = headers.findIndex(h => h.includes(FIELD_FILE));
+    const idxTime    = headers.findIndex(h => h.includes("時間") || h.toLowerCase().includes("timestamp"));
+    if (idxStudent < 0) continue;
+
+    const byKey = {}; // "name||title" -> [{row, timestamp}, ...]
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      const studentName = normalizeName(row[idxStudent]);
+      if (!studentName) continue;
+      const title = (idxTitle >= 0 ? normalizeName(row[idxTitle]) : "") || "（未命名）";
+      const ts = (idxTime >= 0 && row[idxTime] instanceof Date)
+        ? row[idxTime]
+        : new Date(0);
+
+      const key = `${studentName}||${title}`;
+      if (!byKey[key]) byKey[key] = [];
+      byKey[key].push({ row: r + 1, timestamp: ts });
+
+      if (idxFile >= 0) {
+        const fileIds = extractFileIds(row[idxFile]);
+        if (fileIds.length === 0) continue;
+
+        const studentFolder = getStudentFolder(studentName);
+        if (!studentFolder) {
+          fileIds.forEach(fid => misplaced.push({
+            sheetName, row: r + 1, studentName, title, fileId: fid,
+            reason: `找不到該學生的資料夾（請確認 config.js / 試算表姓名拼寫一致，並執行 setupTrigger() 後資料夾的存在）`,
+          }));
+          continue;
+        }
+
+        const targetId = studentFolder.getId();
+        for (const fid of fileIds) {
+          try {
+            const file = DriveApp.getFileById(fid);
+            const parents = file.getParents();
+            let inFolder = false;
+            while (parents.hasNext()) {
+              if (parents.next().getId() === targetId) { inFolder = true; break; }
+            }
+            if (!inFolder) {
+              misplaced.push({
+                sheetName, row: r + 1, studentName, title, fileId: fid,
+                reason: `檔案目前不在「${studentFolder.getName()}」資料夾`,
+              });
+            }
+          } catch (err) {
+            misplaced.push({
+              sheetName, row: r + 1, studentName, title, fileId: fid,
+              reason: `無法存取檔案（可能已被刪除或權限變更）：${err.message || err}`,
+            });
+          }
+        }
+      }
+    }
+
+    Object.keys(byKey).forEach(k => {
+      if (byKey[k].length < 2) return;
+      const [name, title] = k.split("||");
+      duplicateGroups.push({
+        sheetName, studentName: name, title,
+        rows: byKey[k],
+      });
+    });
+  }
+
+  return { misplaced, duplicateGroups };
 }
