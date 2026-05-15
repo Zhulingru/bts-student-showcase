@@ -11,3 +11,10 @@ Thumbs.db
 # 原始夾保留在本機方便對照即可，不需要進 repo。若你的場景需要保留，移除以下兩行。
 六年級網站整理素材/
 inspiration-source/
+
+# 私密名單與 build 產出
+# private-data.local.json 含學生 email + 驗證碼,只在本機,由 tools/build-deploy.py 讀取
+# _build/ 是注入後可直接貼到 Apps Script 的版本,同樣含個資
+*.local.json
+!*.example.json
+_build/

@@ -363,6 +363,114 @@ const STUDENTS_PRIVATE = [
 - 想關閉（例如只開放給學生）把 `config.js` 的 `guestModeEnabled` 改成 `false` 即可
 - 也可以在 `guestRoles` 陣列裡增減角色選項
 
+> 注意：訪客模式的「老師」只是徽章，**任何人都能自稱**。如果你要看下面那個「📊 繳交狀況」面板，需要走有驗證碼的「老師登入」流程，這兩個是不同機制。
+
+### 📊 老師面板 · 繳交狀況
+
+只有通過驗證碼的老師看得到、其他人完全看不到入口。打開後是一張「學生 × 必交任務」的矩陣，✓ / ✗ 一目了然，並附帶：
+
+- 每項任務的繳交進度條（X / N 人）
+- 每項任務「還沒交的人」清單，可直接複製去群組點名
+- 偵測到「試算表有姓名但不在學生名單」時，會提醒你姓名是否拼錯
+
+**一次性設定**：
+
+1. 打開 `apps-script.gs`，找到最上方的 `REQUIRED_TASKS`，把要追蹤的任務列上去。支援兩種偵測模式：
+
+   ```js
+   const REQUIRED_TASKS = [
+     // 模式 A：標題比對（學生標題包含關鍵字就算交）
+     { id: "task1", label: "任務一", mode: "keywords",
+       keywords: ["任務一", "任務1", "task1"] },
+
+     // 模式 B：PDF 數量（不看標題，看該學生上傳過幾個 PDF）
+     { id: "task0_1", label: "任務零＋一", mode: "pdfCount", minPdfCount: 2 },
+   ];
+   ```
+
+   `keywords` 是模糊比對用的——學生標題寫成「任務零反思」「我的任務0」都會被視為交了。
+   `pdfCount` 適合學生命名還沒統一的階段，純粹看 Drive 上的 PDF 數。
+
+2. 把老師加進「私密名單」（見下方「私密名單怎麼維護」一節）。
+
+3. **重新部署**（「部署 → 管理部署作業 → 編輯 → 版本選新版本 → 部署」），不然網站還是讀舊版的 API。
+
+**怎麼用**：
+
+1. 進網站，點右上「我是 / 選擇身分」，視窗最上方多出一塊綠色的「老師登入」
+2. 點自己的名字，輸入驗證碼
+3. 通過後右上會多一顆 **📊 繳交狀況** 按鈕，點它就打開面板
+4. 面板開著時每 15 秒自動刷新（你也可以手動點 ⟳）
+
+**之後要加新任務（任務二、任務三…）**：
+
+- 只要在 `REQUIRED_TASKS` 陣列裡加一筆，重新部署即可——面板會自動多一欄
+- 不需要學生做任何事，他們照常上傳，標題包含「任務二」就自動算交了
+
+**安全性**：
+
+- 驗證碼**不會**寫進前端原始碼，留在 Apps Script 編輯器
+- 每次打開面板都會把 `{name, code}` POST 給後端再驗一次；驗不過直接退回，**不會回任何資料**
+- 老師驗證碼會存在你瀏覽器的 localStorage，下次打開不用再輸入；別人的電腦就沒有
+
+### 🔐 私密名單怎麼維護（推薦工作流程）
+
+學生 email + 驗證碼、老師驗證碼這類個資，**不要直接寫在 `apps-script.gs`**（一不小心就會推到 GitHub）。本專案提供一個流程，把資料留在本機：
+
+**1. 第一次設定**：
+
+```bash
+# 複製範例檔，填入真實資料
+cp private-data.local.example.json private-data.local.json
+# 用編輯器打開填入學生名單、老師名單
+```
+
+`private-data.local.json` 的格式：
+
+```json
+{
+  "students": [
+    { "class": "A", "name": "王小明", "email": "xiaoming@school.edu.tw", "code": "1234" }
+  ],
+  "teachers": [
+    { "name": "Chibi", "code": "2333", "label": "Chibi 老師" }
+  ]
+}
+```
+
+> `*.local.json` 已被 `.gitignore` 排除，不會進 GitHub。
+
+**2. 之後每次要部署到 Apps Script**：
+
+```bash
+python3 tools/build-deploy.py --copy
+```
+
+這個指令會：
+- 讀 `apps-script.gs`（乾淨版）和 `private-data.local.json`（真實資料）
+- 把資料注入到 `_build/apps-script.deploy.gs`
+- macOS 上會**直接複製到剪貼簿**
+
+接著到 Apps Script 編輯器全選（`Cmd+A`）、貼上（`Cmd+V`）、存檔、重新部署即可。
+
+**3. 改了驗證碼或學生名單**：
+
+只要改 `private-data.local.json` 一個檔案 → 重跑 `build-deploy.py --copy` → 重貼 + 重新部署。`apps-script.gs` 不用動。
+
+**4. 推 GitHub**：
+
+直接 `git add . && git commit && git push`。`private-data.local.json` 和 `_build/` 都被 `.gitignore` 擋下了，不會洩漏個資。GitHub 上看到的 `apps-script.gs` 永遠是乾淨的。
+
+**結構速覽**：
+
+| 檔案 | 進 GitHub？ | 用途 |
+|---|---|---|
+| `apps-script.gs` | ✅ 乾淨版（空名單） | 程式邏輯本身 |
+| `private-data.local.example.json` | ✅ 範例 | 給新環境參考格式 |
+| `private-data.local.json` | ❌（.gitignore） | 真實名單，只在本機 |
+| `_build/apps-script.deploy.gs` | ❌（.gitignore） | 注入資料後的部署版，貼到 Apps Script |
+| `tools/build-deploy.py` | ✅ | 注入工具本身 |
+
 ### 學生大頭貼（選用）
 
 每位學生可以有一張代表用的大頭貼，取代學生格子的縮圖。預設是**開啟**的。

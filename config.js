@@ -68,6 +68,17 @@ const CONFIG = {
     { id: "parent",  label: "家長", emoji: "👨‍👩‍👦" },
   ],
 
+  // ─── 老師面板（選用）──────────────────────────────────
+  // 老師可以透過「老師登入」進入「📊 繳交狀況」面板，看到全班對 REQUIRED_TASKS
+  // 的繳交矩陣（即時更新）。需要 appsScriptUrl 已啟用。
+  //
+  // 真正的驗證碼（code）寫在 apps-script.gs 的 TEACHERS_PRIVATE 裡，這裡只放姓名／顯示名稱。
+  // 多位老師就加多筆；想關閉整個老師面板把陣列清空即可（自動隱藏入口）。
+  // 注意：teachers[].name 必須和 TEACHERS_PRIVATE[].name 一字不差。
+  teachers: [
+    { name: "Chibi", label: "Chibi 老師" },
+  ],
+
   // 班級設定
   // label 是網站上顯示的文字，必須和 Google 表單「班級」欄位的選項完全一致
   // color 是班級主色，可以改成你喜歡的色碼

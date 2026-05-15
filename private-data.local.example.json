@@ -1,0 +1,12 @@
+{
+  "_comment": "把這個檔複製成 `private-data.local.json` 後填入真實資料。`*.local.json` 已被 .gitignore 排除。",
+  "_usage": "改完跑 `python3 tools/build-deploy.py --copy`,會把真實資料注入到 apps-script.gs 並複製到剪貼簿(macOS),直接到 Apps Script 編輯器全選貼上即可。",
+  "students": [
+    { "class": "A", "name": "王小明", "email": "xiaoming@school.edu.tw", "code": "1234" },
+    { "class": "A", "name": "陳美麗", "email": "meili@school.edu.tw",    "code": "5678" },
+    { "class": "B", "name": "林大同", "email": "datong@school.edu.tw",   "code": "9012" }
+  ],
+  "teachers": [
+    { "name": "Chibi", "code": "0000", "label": "Chibi 老師" }
+  ]
+}

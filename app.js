@@ -29,10 +29,13 @@
 
   // ---------- 身分管理（localStorage，弱實名）----------
   const IDENTITY_STORAGE_KEY = "bts-showcase-identity-v1";
+  const TEACHER_STORAGE_KEY = "bts-showcase-teacher-v1";
   const GUEST_MODE_ENABLED = Boolean(CONFIG.guestModeEnabled);
   const GUEST_ROLES = Array.isArray(CONFIG.guestRoles) ? CONFIG.guestRoles : [];
   const GUEST_ROLE_BY_ID = new Map(GUEST_ROLES.map(r => [r.id, r]));
+  const CONFIG_TEACHERS = Array.isArray(CONFIG.teachers) ? CONFIG.teachers : [];
   let identity = loadIdentity();
+  let teacherSession = loadTeacherSession();
 
   function loadIdentity() {
     try {
@@ -62,6 +65,36 @@
   function generateUuid() {
     if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
     return "u-" + Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
+  }
+
+  // 老師憑證單獨存一份；要看面板時把它附上 POST。
+  // 失效（後端改了 code）的話下一次 POST 會被退回，我們自動清掉 session 並請老師重登。
+  function loadTeacherSession() {
+    try {
+      const raw = localStorage.getItem(TEACHER_STORAGE_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !obj.name || !obj.code) return null;
+      return obj;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveTeacherSession(name, code, label) {
+    const obj = { name: name, code: code, label: label || name };
+    localStorage.setItem(TEACHER_STORAGE_KEY, JSON.stringify(obj));
+    teacherSession = obj;
+    return obj;
+  }
+
+  function clearTeacherSession() {
+    localStorage.removeItem(TEACHER_STORAGE_KEY);
+    teacherSession = null;
+  }
+
+  function isAdmin() {
+    return Boolean(teacherSession && teacherSession.name && teacherSession.code);
   }
 
   function roleInfo(role) {
@@ -917,6 +950,8 @@
       socialState.reactions = Array.isArray(json.reactions) ? json.reactions : [];
       socialState.comments = Array.isArray(json.comments) ? json.comments : [];
       codesEnabled = !!json.codesEnabled;
+      serverTeachers = Array.isArray(json.teachers) ? json.teachers : [];
+      refreshTeacherUiState();
 
       if (STUDENT_BIO_ENABLED) {
         const nextBios = new Map();
@@ -1155,6 +1190,10 @@
   // 預設值跟著 socialEnabled 走；待 fetchSocial() 第一次回來後，會依後端實際狀態再更新。
   let codesEnabled = socialEnabled;
 
+  // 後端 doGet 回傳的老師清單；用來決定要不要在身分選擇器顯示「老師登入」入口。
+  // 預設用 config.js 的 teachers，等後端第一次回應後會被覆蓋成實際 TEACHERS_PRIVATE 名單。
+  let serverTeachers = CONFIG_TEACHERS.map(t => ({ name: t.name, label: t.label || t.name }));
+
   async function verifyStudentCodeRemote(studentName, input) {
     if (!socialEnabled) return { ok: true, valid: true };
     try {
@@ -1167,6 +1206,23 @@
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "驗證失敗");
       return { ok: true, valid: !!json.valid, reason: json.reason };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  }
+
+  async function verifyTeacherCodeRemote(teacherName, input) {
+    if (!socialEnabled) return { ok: false, error: "appsScriptUrl 未設定" };
+    try {
+      const res = await fetch(CONFIG.appsScriptUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "verifyTeacher", name: teacherName, code: input }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "驗證失敗");
+      return { ok: true, valid: !!json.valid, reason: json.reason, label: json.label };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
     }
@@ -1212,8 +1268,13 @@
   }
 
   function renderIdentityPickerList() {
+    const teacherNameSet = new Set(serverTeachers.map(t => normalizeName(t.name)));
+
     const studentHtml = CLASSES.map(cls => {
-      const students = (CONFIG.students || []).filter(s => s.class === cls.id);
+      // 老師清單裡的名字不在學生選單裡出現（避免老師被點到走錯流程）
+      const students = (CONFIG.students || [])
+        .filter(s => s.class === cls.id)
+        .filter(s => !teacherNameSet.has(normalizeName(s.name)));
       if (students.length === 0) return "";
       const options = students.map(s => {
         const isActive = identity && identity.role === "student" && identity.userName === s.name;
@@ -1231,7 +1292,125 @@
       `;
     }).join("");
 
-    identityListEl.innerHTML = studentHtml + renderGuestFormHtml();
+    identityListEl.innerHTML = renderTeacherLoginHtml() + studentHtml + renderGuestFormHtml();
+  }
+
+  function renderTeacherLoginHtml() {
+    if (!socialEnabled || serverTeachers.length === 0) return "";
+    const teacherBtns = serverTeachers.map(t => {
+      const isActive = isAdmin() && teacherSession && normalizeName(teacherSession.name) === normalizeName(t.name);
+      return `
+        <button type="button"
+                class="identity-teacher-option ${isActive ? "active" : ""}"
+                data-teacher-name="${escapeHtml(t.name)}">
+          👩‍🏫 ${escapeHtml(t.label || t.name)}
+          <span class="identity-lock" aria-hidden="true">🔒</span>
+        </button>
+      `;
+    }).join("");
+    const logoutHtml = isAdmin()
+      ? `<button type="button" class="identity-teacher-logout" id="identity-teacher-logout">登出老師面板</button>`
+      : "";
+    return `
+      <div class="identity-group identity-group-teacher">
+        <div class="identity-group-label">
+          <span class="dot" style="background:#10b981"></span>
+          老師登入（看「繳交狀況」面板）
+        </div>
+        <div class="identity-teacher-options">${teacherBtns}</div>
+        ${logoutHtml}
+      </div>
+    `;
+  }
+
+  function renderIdentityTeacherCodeStep(teacherName, label) {
+    identityListEl.innerHTML = `
+      <div class="identity-code-step identity-code-step--teacher">
+        <button type="button" class="identity-code-back" id="identity-code-back">← 換一個</button>
+        <div class="identity-code-heading">
+          <div class="identity-code-title">嗨，<strong>${escapeHtml(label || teacherName)}</strong></div>
+          <div class="identity-code-sub">請輸入老師面板專用的 <strong>驗證碼</strong></div>
+        </div>
+        <div class="identity-code-row">
+          <input type="text"
+                 id="identity-teacher-code-input"
+                 class="identity-code-input"
+                 autocomplete="off"
+                 autocapitalize="off"
+                 spellcheck="false"
+                 inputmode="numeric"
+                 pattern="[0-9]*"
+                 maxlength="4"
+                 placeholder="4 位數字"
+                 data-name="${escapeHtml(teacherName)}" />
+          <button type="button" id="identity-teacher-code-submit" class="identity-code-submit">確認</button>
+        </div>
+        <div id="identity-teacher-code-err" class="identity-code-err" hidden></div>
+        <div class="identity-code-hint">通過驗證後右上會多一個 📊 按鈕，點下去可以看全班繳交狀況。</div>
+      </div>
+    `;
+    const input = document.getElementById("identity-teacher-code-input");
+    if (input) setTimeout(() => input.focus(), 30);
+  }
+
+  function showTeacherCodeError(msg) {
+    const el = document.getElementById("identity-teacher-code-err");
+    if (!el) return;
+    el.textContent = msg;
+    el.hidden = false;
+    const input = document.getElementById("identity-teacher-code-input");
+    if (input) {
+      input.classList.add("has-error");
+      input.focus();
+      input.select();
+    }
+  }
+  function clearTeacherCodeError() {
+    const el = document.getElementById("identity-teacher-code-err");
+    if (el) { el.hidden = true; el.textContent = ""; }
+    const input = document.getElementById("identity-teacher-code-input");
+    if (input) input.classList.remove("has-error");
+  }
+
+  async function submitTeacherCode() {
+    const input = document.getElementById("identity-teacher-code-input");
+    const submitBtn = document.getElementById("identity-teacher-code-submit");
+    if (!input) return;
+    const teacherName = input.dataset.name;
+    const value = input.value || "";
+    if (!value.trim()) {
+      showTeacherCodeError("請輸入驗證碼");
+      return;
+    }
+
+    clearTeacherCodeError();
+    input.disabled = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "驗證中…";
+    }
+
+    const result = await verifyTeacherCodeRemote(teacherName, value);
+
+    input.disabled = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "確認";
+    }
+
+    if (!result.ok) {
+      showTeacherCodeError(`驗證服務連不上：${result.error}。請稍後再試。`);
+      return;
+    }
+    if (!result.valid) {
+      showTeacherCodeError("驗證碼不正確，再試一次");
+      return;
+    }
+
+    saveTeacherSession(teacherName, value, result.label);
+    refreshTeacherUiState();
+    closeIdentityPicker();
+    openTeacherDashboard();
   }
 
   function renderIdentityCodeStep(studentName) {
@@ -1404,13 +1583,34 @@
         renderIdentityPickerList();
         return;
       }
-      // 3) 驗證碼步驟：送出
+      // 3) 驗證碼步驟：送出（學生 / 老師）
       const codeSubmit = e.target.closest("#identity-code-submit");
       if (codeSubmit) {
         submitStudentCode();
         return;
       }
-      // 4) 訪客：切換角色
+      const teacherCodeSubmit = e.target.closest("#identity-teacher-code-submit");
+      if (teacherCodeSubmit) {
+        submitTeacherCode();
+        return;
+      }
+      // 4) 老師登入按鈕
+      const teacherOpt = e.target.closest(".identity-teacher-option");
+      if (teacherOpt) {
+        const teacherName = teacherOpt.dataset.teacherName;
+        const meta = serverTeachers.find(t => t.name === teacherName);
+        renderIdentityTeacherCodeStep(teacherName, meta && meta.label);
+        return;
+      }
+      // 5) 老師登出
+      const logoutBtn = e.target.closest("#identity-teacher-logout");
+      if (logoutBtn) {
+        clearTeacherSession();
+        refreshTeacherUiState();
+        renderIdentityPickerList();
+        return;
+      }
+      // 6) 訪客：切換角色
       const roleBtn = e.target.closest(".identity-role");
       if (roleBtn) {
         identityListEl.querySelectorAll(".identity-role").forEach(b => b.classList.remove("active"));
@@ -1418,7 +1618,7 @@
         clearGuestError();
         return;
       }
-      // 5) 訪客：送出暱稱
+      // 7) 訪客：送出暱稱
       const submit = e.target.closest("#identity-nick-submit");
       if (submit) {
         submitGuestForm();
@@ -1428,6 +1628,7 @@
     identityListEl.addEventListener("input", (e) => {
       if (e.target.id === "identity-nick-input") clearGuestError();
       if (e.target.id === "identity-code-input") clearCodeError();
+      if (e.target.id === "identity-teacher-code-input") clearTeacherCodeError();
     });
     identityListEl.addEventListener("keydown", (e) => {
       if (e.target.id === "identity-nick-input" && e.key === "Enter") {
@@ -1437,6 +1638,10 @@
       if (e.target.id === "identity-code-input" && e.key === "Enter") {
         e.preventDefault();
         submitStudentCode();
+      }
+      if (e.target.id === "identity-teacher-code-input" && e.key === "Enter") {
+        e.preventDefault();
+        submitTeacherCode();
       }
     });
     document.addEventListener("keydown", (e) => {
@@ -1623,6 +1828,295 @@
     });
   }
 
+  // ---------- 老師面板：繳交狀況 ----------
+  // 流程：
+  //   - 老師通過 verifyTeacher 後，{name, code} 存到 localStorage 的 TEACHER_STORAGE_KEY
+  //   - 點 📊 按鈕 → POST getSubmissionStatus，後端再驗一次才會回資料
+  //   - 開著 modal 時每 N 秒自動刷新，方便老師看即時繳交動態
+  const teacherDashBtn = document.getElementById("teacher-dash-btn");
+  const teacherModalEl = document.getElementById("teacher-modal");
+  const teacherModalBodyEl = document.getElementById("teacher-modal-body");
+  const teacherRefreshBtn = document.getElementById("teacher-refresh-btn");
+  const TEACHER_REFRESH_INTERVAL_MS = 15000;
+  let teacherStatusCache = null;
+  let teacherFetchInflight = false;
+  let teacherRefreshTimer = null;
+
+  function refreshTeacherUiState() {
+    if (!teacherDashBtn) return;
+    const showBtn = socialEnabled && isAdmin() && serverTeachers.length > 0;
+    teacherDashBtn.hidden = !showBtn;
+    // 若伺服器名單突然不見了（老師被移除）、或本地 session 與伺服器不對應，自動清掉
+    if (isAdmin()) {
+      const stillThere = serverTeachers.some(
+        t => normalizeName(t.name) === normalizeName(teacherSession.name)
+      );
+      if (!stillThere && serverTeachers.length > 0) {
+        clearTeacherSession();
+        teacherDashBtn.hidden = true;
+        if (teacherModalEl && !teacherModalEl.hidden) closeTeacherDashboard();
+      }
+    }
+  }
+
+  function openTeacherDashboard() {
+    if (!teacherModalEl) return;
+    if (!isAdmin()) {
+      openIdentityPicker();
+      return;
+    }
+    teacherModalEl.hidden = false;
+    document.body.style.overflow = "hidden";
+    if (teacherStatusCache) {
+      renderTeacherDashboard(teacherStatusCache);
+    } else {
+      teacherModalBodyEl.innerHTML = `<div class="teacher-loading">載入中…</div>`;
+    }
+    fetchTeacherStatus();
+    startTeacherAutoRefresh();
+  }
+
+  function closeTeacherDashboard() {
+    if (!teacherModalEl || teacherModalEl.hidden) return;
+    teacherModalEl.hidden = true;
+    stopTeacherAutoRefresh();
+    if (modalEl.hidden && identityModalEl.hidden && (!lightboxEl || lightboxEl.hidden)) {
+      document.body.style.overflow = "";
+    }
+  }
+
+  function startTeacherAutoRefresh() {
+    stopTeacherAutoRefresh();
+    teacherRefreshTimer = setInterval(() => {
+      if (document.hidden) return;
+      fetchTeacherStatus({ silent: true });
+    }, TEACHER_REFRESH_INTERVAL_MS);
+  }
+
+  function stopTeacherAutoRefresh() {
+    if (teacherRefreshTimer) {
+      clearInterval(teacherRefreshTimer);
+      teacherRefreshTimer = null;
+    }
+  }
+
+  async function fetchTeacherStatus(opts) {
+    if (!isAdmin() || !socialEnabled) return;
+    if (teacherFetchInflight) return;
+    teacherFetchInflight = true;
+    const silent = opts && opts.silent;
+    if (teacherRefreshBtn) {
+      teacherRefreshBtn.classList.add("is-loading");
+      teacherRefreshBtn.disabled = true;
+    }
+    try {
+      const res = await fetch(CONFIG.appsScriptUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "getSubmissionStatus",
+          name: teacherSession.name,
+          code: teacherSession.code,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json.ok) {
+        if (json.error === "unauthorized") {
+          clearTeacherSession();
+          refreshTeacherUiState();
+          renderTeacherDashboardError("登入失效，請重新登入老師面板。");
+          return;
+        }
+        throw new Error(json.error || "載入失敗");
+      }
+      teacherStatusCache = json;
+      renderTeacherDashboard(json);
+    } catch (err) {
+      console.warn("[teacher] fetch failed", err);
+      if (!silent || !teacherStatusCache) {
+        renderTeacherDashboardError(`載入失敗：${err.message || err}`);
+      }
+    } finally {
+      teacherFetchInflight = false;
+      if (teacherRefreshBtn) {
+        teacherRefreshBtn.classList.remove("is-loading");
+        teacherRefreshBtn.disabled = false;
+      }
+    }
+  }
+
+  function renderTeacherDashboardError(msg) {
+    if (!teacherModalBodyEl) return;
+    teacherModalBodyEl.innerHTML = `
+      <div class="teacher-error">
+        <p>${escapeHtml(msg)}</p>
+        <button type="button" class="btn btn-ghost" id="teacher-error-retry">重試</button>
+      </div>
+    `;
+    const btn = document.getElementById("teacher-error-retry");
+    if (btn) btn.addEventListener("click", () => fetchTeacherStatus());
+  }
+
+  function fmtTeacherTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const pad = n => String(n).padStart(2, "0");
+    return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function renderTeacherDashboard(data) {
+    if (!teacherModalBodyEl) return;
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+    const students = Array.isArray(data.students) ? data.students : [];
+    const totals = data.totals || {};
+    const unmatched = Array.isArray(data.unmatched) ? data.unmatched : [];
+    const generated = fmtTeacherTime(data.generatedAt);
+
+    if (tasks.length === 0) {
+      teacherModalBodyEl.innerHTML = `
+        <div class="teacher-empty">
+          <p>目前 REQUIRED_TASKS 是空的。</p>
+          <p class="teacher-empty-hint">到 apps-script.gs 把要追蹤的任務（例如 <code>任務零</code>）加進 <code>REQUIRED_TASKS</code> 陣列，然後重新部署即可。</p>
+        </div>
+      `;
+      return;
+    }
+
+    // ---- 統計列 ----
+    const summaryHtml = `
+      <div class="teacher-summary">
+        ${tasks.map(t => {
+          const tot = totals[t.id] || { done: 0, missing: students.length };
+          const pct = students.length ? Math.round((tot.done / students.length) * 100) : 0;
+          return `
+            <div class="teacher-summary-card">
+              <div class="teacher-summary-label">${escapeHtml(t.label)}</div>
+              <div class="teacher-summary-value">${tot.done}<span class="teacher-summary-divider">/</span>${students.length}</div>
+              <div class="teacher-summary-bar"><div class="teacher-summary-bar-fill" style="width:${pct}%"></div></div>
+              <div class="teacher-summary-meta">${pct}% 已交 · 還差 ${tot.missing} 人</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+
+    // ---- 矩陣 ----
+    // 班級顏色：用同一份 CONFIG.classes 設定
+    const classOfNorm = STUDENT_TO_CLASS;  // map: normalizedName -> classId
+    const rowsHtml = students.map(s => {
+      const cls = classOfNorm.get(normalizeName(s.name)) || "";
+      const clsInfo = cls ? getClassInfo(cls) : null;
+      const clsCell = clsInfo
+        ? `<span class="teacher-cell-class" style="--cls-color:${clsInfo.color}">${escapeHtml(clsInfo.id)}</span>`
+        : `<span class="teacher-cell-class teacher-cell-class--none">—</span>`;
+      const tdTasks = tasks.map(t => {
+        const st = s.status && s.status[t.id];
+        // pdfCount 模式：後端會多回一個 requirement 字串（例如「至少 2 個 PDF」）
+        // 用它區分 tooltip 與 cell 顯示
+        const isPdfMode = st && typeof st.requirement === "string";
+        const titlesAttr = (st && st.titles ? st.titles : []).join(" · ");
+        const detailLabel = isPdfMode ? "檔名" : "標題";
+
+        if (!st || !st.done) {
+          // 未交。pdfCount 模式如果已經傳了部分 PDF（只是還沒滿要求數），顯示進度
+          if (isPdfMode && st && st.count > 0) {
+            const tip = `${st.requirement} · 目前 ${st.count} 個` +
+              (titlesAttr ? `\n${detailLabel}：${titlesAttr}` : "");
+            return `<td class="teacher-cell teacher-cell--missing" data-task="${escapeHtml(t.id)}" title="${escapeHtml(tip)}">
+              <span class="teacher-check teacher-check--no" aria-label="未交">✗</span>
+              <span class="teacher-cell-time">${st.count} 個 PDF</span>
+            </td>`;
+          }
+          const missTip = isPdfMode && st ? st.requirement : "";
+          return `<td class="teacher-cell teacher-cell--missing" data-task="${escapeHtml(t.id)}"${missTip ? ` title="${escapeHtml(missTip)}"` : ""}><span class="teacher-check teacher-check--no" aria-label="未交">✗</span></td>`;
+        }
+        const lastLabel = st.lastTime ? fmtTeacherTime(st.lastTime) : "";
+        const countBadge = st.count > 1 ? `<span class="teacher-cell-count" title="共 ${st.count} 個">×${st.count}</span>` : "";
+        const tooltip = lastLabel
+          ? `最後一次：${lastLabel}${titlesAttr ? `\n${detailLabel}：${titlesAttr}` : ""}`
+          : titlesAttr;
+        return `<td class="teacher-cell teacher-cell--done" data-task="${escapeHtml(t.id)}" title="${escapeHtml(tooltip)}">
+          <span class="teacher-check teacher-check--yes" aria-label="已交">✓</span>
+          ${lastLabel ? `<span class="teacher-cell-time">${escapeHtml(lastLabel)}</span>` : ""}
+          ${countBadge}
+        </td>`;
+      }).join("");
+      return `
+        <tr>
+          <td class="teacher-cell-name">${clsCell} <span class="teacher-cell-namelabel">${escapeHtml(s.name)}</span></td>
+          ${tdTasks}
+        </tr>
+      `;
+    }).join("");
+
+    const matrixHtml = `
+      <div class="teacher-matrix-wrap">
+        <table class="teacher-matrix">
+          <thead>
+            <tr>
+              <th class="teacher-cell-name">學生</th>
+              ${tasks.map(t => `<th>${escapeHtml(t.label)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+
+    // ---- 還沒交的清單 ----
+    const missingHtml = tasks.map(t => {
+      const list = students.filter(s => !(s.status && s.status[t.id] && s.status[t.id].done));
+      if (list.length === 0) {
+        return `<div class="teacher-missing-block teacher-missing-block--clear">
+          <strong>${escapeHtml(t.label)}</strong> · 🎉 全班都交了
+        </div>`;
+      }
+      const names = list.map(s => escapeHtml(s.name)).join("、");
+      return `<div class="teacher-missing-block">
+        <div class="teacher-missing-head"><strong>${escapeHtml(t.label)}</strong>還沒交（${list.length}）：</div>
+        <div class="teacher-missing-names">${names}</div>
+      </div>`;
+    }).join("");
+
+    // ---- 未對應到名單的姓名（協助修正） ----
+    const unmatchedHtml = unmatched.length > 0 ? `
+      <div class="teacher-unmatched">
+        <div class="teacher-unmatched-head">⚠️ 試算表裡有這些姓名，但不在學生名單裡，沒有列進矩陣：</div>
+        <div class="teacher-unmatched-names">${unmatched.map(escapeHtml).join("、")}</div>
+        <div class="teacher-unmatched-hint">請確認 config.js / 表單下拉選單 / STUDENTS_PRIVATE 中的姓名是否一字不差。</div>
+      </div>
+    ` : "";
+
+    teacherModalBodyEl.innerHTML = `
+      <div class="teacher-meta">
+        <span>共 ${students.length} 位學生 · ${tasks.length} 項必交</span>
+        ${generated ? `<span class="teacher-generated">資料更新時間：${escapeHtml(generated)}</span>` : ""}
+      </div>
+      ${summaryHtml}
+      ${matrixHtml}
+      <div class="teacher-section-title">還沒交的</div>
+      ${missingHtml}
+      ${unmatchedHtml}
+    `;
+  }
+
+  if (teacherDashBtn) {
+    teacherDashBtn.addEventListener("click", openTeacherDashboard);
+  }
+  if (teacherModalEl) {
+    teacherModalEl.querySelectorAll("[data-close-teacher]").forEach(el => {
+      el.addEventListener("click", closeTeacherDashboard);
+    });
+  }
+  if (teacherRefreshBtn) {
+    teacherRefreshBtn.addEventListener("click", () => fetchTeacherStatus());
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && teacherModalEl && !teacherModalEl.hidden) closeTeacherDashboard();
+  });
+
   // ---------- 主流程 ----------
   async function load() {
     setStatus("warn", "更新中…");
@@ -1774,6 +2268,7 @@
 
   // 初始化身分 chip 與社交功能
   refreshIdentityChip();
+  refreshTeacherUiState();
 
   dataPoller.start();
   if (socialPoller) socialPoller.start();
