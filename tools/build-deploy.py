@@ -3,8 +3,8 @@
 build-deploy.py · 把私密名單注入 apps-script.gs,產出可直接貼到 Apps Script 編輯器的版本。
 
 用法:
-    python3 tools/build-deploy.py            # 只輸出到 _build/apps-script.deploy.gs
-    python3 tools/build-deploy.py --copy     # 同時複製到剪貼簿 (macOS pbcopy)
+    python3 tools/build-deploy.py            # 只產生一個檔：_build/PASTE-INTO-GOOGLE-APPS-SCRIPT.gs
+    python3 tools/build-deploy.py --copy     # 同上，並複製到剪貼簿 (macOS pbcopy)，一鍵貼進 Apps Script
 
 設計理念:
     - repo 裡的 apps-script.gs 永遠是「乾淨版」(STUDENTS_PRIVATE / TEACHERS_PRIVATE 為空)
@@ -33,7 +33,18 @@ SRC_GS = ROOT / "apps-script.gs"
 DATA_JSON = ROOT / "private-data.local.json"
 EXAMPLE_JSON = ROOT / "private-data.local.example.json"
 OUT_DIR = ROOT / "_build"
-OUT_GS = OUT_DIR / "apps-script.deploy.gs"
+# 只產這一個檔：全選複製 → Apps Script 整份貼上即可（_build/ 已 .gitignore）
+OUT_GS = OUT_DIR / "PASTE-INTO-GOOGLE-APPS-SCRIPT.gs"
+
+PASTE_BANNER = """/**
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ * 這份檔 → 可直接「全選、複製」貼進 Google Apps Script 編輯器（取代整個專案程式碼即可）
+ * 儲存後：部署 → 管理部署作業 → 編輯 → 版本選「新版本」→ 部署
+ * 名單來自 private-data.local.json（勿把本檔提交到公開 GitHub）
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ */
+
+"""
 
 
 def fail(msg: str, code: int = 1) -> None:
@@ -127,15 +138,17 @@ def main() -> None:
     src = replace_between(src, "<<< PRIVATE_DATA_START:students", "<<< PRIVATE_DATA_END:students", student_lines, "students")
     src = replace_between(src, "<<< PRIVATE_DATA_START:teachers", "<<< PRIVATE_DATA_END:teachers", teacher_lines, "teachers")
 
+    final = PASTE_BANNER + src
+
     OUT_DIR.mkdir(exist_ok=True)
-    OUT_GS.write_text(src, encoding="utf-8")
-    ok(f"已輸出 {OUT_GS.relative_to(ROOT)}")
+    OUT_GS.write_text(final, encoding="utf-8")
+    ok(f"已輸出 {OUT_GS.relative_to(ROOT)}（僅此一份，全選複製即可）")
     print(f"  • {len(students)} 位學生")
     print(f"  • {len(teachers)} 位老師")
 
     if do_copy:
         try:
-            subprocess.run(["pbcopy"], input=src.encode("utf-8"), check=True)
+            subprocess.run(["pbcopy"], input=final.encode("utf-8"), check=True)
             ok("已複製到剪貼簿,直接到 Apps Script 編輯器全選貼上即可")
         except FileNotFoundError:
             warn(f"pbcopy 不存在(非 macOS?);請手動複製 {OUT_GS.relative_to(ROOT)} 內容")

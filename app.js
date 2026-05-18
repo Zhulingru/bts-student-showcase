@@ -951,6 +951,9 @@
       socialState.comments = Array.isArray(json.comments) ? json.comments : [];
       codesEnabled = !!json.codesEnabled;
       serverTeachers = Array.isArray(json.teachers) ? json.teachers : [];
+      if (typeof json.submissionDashboardPublic === "boolean") {
+        submissionDashboardPublic = json.submissionDashboardPublic;
+      }
       refreshTeacherUiState();
 
       if (STUDENT_BIO_ENABLED) {
@@ -1193,6 +1196,9 @@
   // 後端 doGet 回傳的老師清單；用來決定要不要在身分選擇器顯示「老師登入」入口。
   // 預設用 config.js 的 teachers，等後端第一次回應後會被覆蓋成實際 TEACHERS_PRIVATE 名單。
   let serverTeachers = CONFIG_TEACHERS.map(t => ({ name: t.name, label: t.label || t.name }));
+
+  // 繳交狀況是否對所有人開放（後端 SUBMISSION_DASHBOARD_PUBLIC；doGet 會覆寫）
+  let submissionDashboardPublic = CONFIG.submissionDashboardPublic === true;
 
   async function verifyStudentCodeRemote(studentName, input) {
     if (!socialEnabled) return { ok: true, valid: true };
@@ -1831,7 +1837,8 @@
   // ---------- 老師面板：繳交狀況 ----------
   // 流程：
   //   - 老師通過 verifyTeacher 後，{name, code} 存到 localStorage 的 TEACHER_STORAGE_KEY
-  //   - 點 📊 按鈕 → POST getSubmissionStatus，後端再驗一次才會回資料
+  //   - 若後端 SUBMISSION_DASHBOARD_PUBLIC：任何人可開 📊，POST 不必帶驗證碼
+  //   - 否則僅 isAdmin() 可開，且每次 POST getSubmissionStatus 後端再驗一次
   //   - 開著 modal 時每 N 秒自動刷新，方便老師看即時繳交動態
   const teacherDashBtn = document.getElementById("teacher-dash-btn");
   const teacherModalEl = document.getElementById("teacher-modal");
@@ -1844,7 +1851,9 @@
 
   function refreshTeacherUiState() {
     if (!teacherDashBtn) return;
-    const showBtn = socialEnabled && isAdmin() && serverTeachers.length > 0;
+    const showBtn =
+      socialEnabled &&
+      (submissionDashboardPublic || (isAdmin() && serverTeachers.length > 0));
     teacherDashBtn.hidden = !showBtn;
     // 若伺服器名單突然不見了（老師被移除）、或本地 session 與伺服器不對應，自動清掉
     if (isAdmin()) {
@@ -1853,15 +1862,17 @@
       );
       if (!stillThere && serverTeachers.length > 0) {
         clearTeacherSession();
-        teacherDashBtn.hidden = true;
-        if (teacherModalEl && !teacherModalEl.hidden) closeTeacherDashboard();
+        if (!submissionDashboardPublic) {
+          teacherDashBtn.hidden = true;
+          if (teacherModalEl && !teacherModalEl.hidden) closeTeacherDashboard();
+        }
       }
     }
   }
 
   function openTeacherDashboard() {
     if (!teacherModalEl) return;
-    if (!isAdmin()) {
+    if (!submissionDashboardPublic && !isAdmin()) {
       openIdentityPicker();
       return;
     }
@@ -1901,7 +1912,8 @@
   }
 
   async function fetchTeacherStatus(opts) {
-    if (!isAdmin() || !socialEnabled) return;
+    if (!socialEnabled) return;
+    if (!submissionDashboardPublic && !isAdmin()) return;
     if (teacherFetchInflight) return;
     teacherFetchInflight = true;
     const silent = opts && opts.silent;
@@ -1915,16 +1927,18 @@
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({
           action: "getSubmissionStatus",
-          name: teacherSession.name,
-          code: teacherSession.code,
+          name: isAdmin() ? teacherSession.name : "",
+          code: isAdmin() ? teacherSession.code : "",
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!json.ok) {
         if (json.error === "unauthorized") {
-          clearTeacherSession();
-          refreshTeacherUiState();
+          if (!submissionDashboardPublic) {
+            clearTeacherSession();
+            refreshTeacherUiState();
+          }
           renderTeacherDashboardError("登入失效，請重新登入老師面板。");
           return;
         }

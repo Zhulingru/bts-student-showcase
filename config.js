@@ -79,6 +79,9 @@ const CONFIG = {
     { name: "Chibi", label: "Chibi 老師" },
   ],
 
+  // 與 apps-script.gs 的 SUBMISSION_DASHBOARD_PUBLIC 對齊：true 時首屏可先顯示 📊（仍以 doGet 回傳為準）
+  submissionDashboardPublic: true,
+
   // 班級設定
   // label 是網站上顯示的文字，必須和 Google 表單「班級」欄位的選項完全一致
   // color 是班級主色，可以改成你喜歡的色碼

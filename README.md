@@ -448,8 +448,8 @@ python3 tools/build-deploy.py --copy
 
 這個指令會：
 - 讀 `apps-script.gs`（乾淨版）和 `private-data.local.json`（真實資料）
-- 把資料注入到 `_build/apps-script.deploy.gs`
-- macOS 上會**直接複製到剪貼簿**
+- 產生**唯一**輸出檔 `_build/PASTE-INTO-GOOGLE-APPS-SCRIPT.gs`（全選複製、整份貼進 Apps Script）
+- macOS 加 `--copy` 時會**直接複製到剪貼簿**（等同一鍵貼上）
 
 接著到 Apps Script 編輯器全選（`Cmd+A`）、貼上（`Cmd+V`）、存檔、重新部署即可。
 
@@ -468,7 +468,7 @@ python3 tools/build-deploy.py --copy
 | `apps-script.gs` | ✅ 乾淨版（空名單） | 程式邏輯本身 |
 | `private-data.local.example.json` | ✅ 範例 | 給新環境參考格式 |
 | `private-data.local.json` | ❌（.gitignore） | 真實名單，只在本機 |
-| `_build/apps-script.deploy.gs` | ❌（.gitignore） | 注入資料後的部署版，貼到 Apps Script |
+| `_build/PASTE-INTO-GOOGLE-APPS-SCRIPT.gs` | ❌（.gitignore） | 注入名單後的**整份**腳本，全選複製貼到 Apps Script |
 | `tools/build-deploy.py` | ✅ | 注入工具本身 |
 
 ### 學生大頭貼（選用）

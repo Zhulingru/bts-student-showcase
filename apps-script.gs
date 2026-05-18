@@ -73,6 +73,9 @@ const REQUIRED_TASKS = [
   { id: "task3", label: "任務三", mode: "keywords", keywords: ["任務三", "任務3", "task 3", "task3"] },
 ];
 
+// 繳交狀況面板:true = 任何人可取得矩陣(不必老師驗證碼);false = 僅限 TEACHERS_PRIVATE 驗證通過
+const SUBMISSION_DASHBOARD_PUBLIC = true;
+
 
 // ============== 主流程:每次表單送出會自動執行 ==============
 
@@ -441,7 +444,7 @@ function sanitize(s) {
 
 // ============== 學生資料(email + 驗證碼) ==============================================
 // ⚠️ 公開 repo 此處為空名單 + 標記。真實資料放本機 private-data.local.json(已 .gitignore),
-//    編輯後跑 python3 tools/build-deploy.py --copy 產出可貼入 Apps Script 的完整檔。見 README。
+//    編輯後跑 python3 tools/build-deploy.py --copy → 產出 _build/PASTE-INTO-GOOGLE-APPS-SCRIPT.gs（整份貼進 Apps Script）。見 README。
 //
 // 每一筆欄位:
 //   name  :和 config.js 的 students[].name 必須完全一致
@@ -697,6 +700,7 @@ function doGet(e) {
       bios: bios,
       codesEnabled: codesEnabled,
       teachers: teachers,
+      submissionDashboardPublic: SUBMISSION_DASHBOARD_PUBLIC,
     });
   } catch (err) {
     return jsonOut({ ok: false, error: String(err && err.message || err) });
@@ -929,8 +933,9 @@ function jsonOut(obj) {
 //   4. 通過後前端把 {name, code} 記在 localStorage;之後每次要看面板都會把它帶上
 //
 // 看面板:
-//   1. 老師按 📊 → 前端 POST { action: "getSubmissionStatus", name, code }
-//   2. 後端再次驗證,通過才回傳矩陣資料(避免有人偽造)
+//   1. 按 📊 → 前端 POST { action: "getSubmissionStatus", name, code }
+//   2. 若 SUBMISSION_DASHBOARD_PUBLIC:true,不必驗證即可回傳矩陣(name/code 可空;若帶有效老師憑證可顯示身分)
+//   3. 否則後端驗證 TEACHERS_PRIVATE,通過才回資料
 
 function findTeacherPrivate(name) {
   const target = normalizeName(name);
@@ -985,10 +990,20 @@ function handleVerifyTeacher(body) {
 function handleGetSubmissionStatus(body) {
   const name = String(body.name || "").slice(0, 64);
   const code = String(body.code || "").slice(0, 64);
-  const v = verifyTeacherCredentials(name, code);
-  if (!v.ok) {
-    if (v.reason === "mismatch") Utilities.sleep(800);
-    return jsonOut({ ok: false, error: "unauthorized", reason: v.reason });
+
+  let teacherOut = { name: "", label: "全班" };
+  if (SUBMISSION_DASHBOARD_PUBLIC) {
+    const v = verifyTeacherCredentials(name, code);
+    if (v.ok) {
+      teacherOut = { name: v.record.name, label: v.record.label || v.record.name };
+    }
+  } else {
+    const v = verifyTeacherCredentials(name, code);
+    if (!v.ok) {
+      if (v.reason === "mismatch") Utilities.sleep(800);
+      return jsonOut({ ok: false, error: "unauthorized", reason: v.reason });
+    }
+    teacherOut = { name: v.record.name, label: v.record.label || v.record.name };
   }
 
   // keywords 任務要有 keywords；pdfCount 任務不依賴 keywords（minPdfCount 未定時下方預設為 1）
@@ -1002,7 +1017,7 @@ function handleGetSubmissionStatus(body) {
     return jsonOut({
       ok: true,
       valid: true,
-      teacher: { name: v.record.name, label: v.record.label || v.record.name },
+      teacher: teacherOut,
       generatedAt: new Date().toISOString(),
       tasks: [],
       students: [],
@@ -1192,7 +1207,7 @@ function handleGetSubmissionStatus(body) {
   return jsonOut({
     ok: true,
     valid: true,
-    teacher: { name: v.record.name, label: v.record.label || v.record.name },
+    teacher: teacherOut,
     generatedAt: new Date().toISOString(),
     tasks: tasks.map(t => ({ id: t.id, label: t.label })),
     students: students,
