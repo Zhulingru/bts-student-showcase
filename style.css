@@ -427,6 +427,62 @@ main {
   opacity: 0.5;
 }
 
+/* 一格內多檔縮圖（Feed／學生格共用） */
+.multi-media-thumb {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  position: relative;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  box-sizing: border-box;
+}
+.multi-media-thumb--2 {
+  grid-template-rows: 1fr;
+}
+.multi-media-thumb--grid4 {
+  grid-template-rows: 1fr 1fr;
+}
+.multi-media-cell {
+  min-width: 0;
+  min-height: 0;
+  background: var(--paper-2);
+  display: flex;
+  align-items: stretch;
+}
+.multi-media-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.feed-card:hover .multi-media-thumb img { transform: scale(1.03); transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1); }
+.multi-media-cell .fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--ash);
+  opacity: 0.55;
+}
+.multi-media-more {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  z-index: 3;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  line-height: 1.2;
+  pointer-events: none;
+}
+
 .feed-card .media .type-badge {
   position: absolute;
   top: 6px;
@@ -866,6 +922,76 @@ main {
   justify-content: center;
   color: var(--ash);
   border: 1px solid var(--line);
+}
+
+.entry .entry-media--multi {
+  aspect-ratio: unset;
+  min-height: 0;
+  align-items: stretch;
+  overflow: visible;
+}
+
+.entry .entry-media-gallery {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(70vh, 720px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.entry .entry-media-item {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.entry .entry-media-item > img,
+.entry .entry-media-item > .entry-media-stack {
+  flex: 1;
+  align-self: stretch;
+  width: 100%;
+  min-height: 0;
+}
+
+.entry .entry-media-item > img {
+  object-fit: cover;
+}
+
+.entry .entry-media-item .entry-media-stack {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+.entry .entry-media-item .entry-drive-preview {
+  flex: 1;
+  min-height: 0;
+}
+
+.entry .entry-media-index {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  z-index: 2;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  letter-spacing: 0.06em;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  line-height: 1;
+  pointer-events: none;
 }
 
 .entry .entry-media--clickable {

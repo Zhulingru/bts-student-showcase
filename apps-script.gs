@@ -33,6 +33,8 @@ const ROOT_FOLDER_ID = "1ifLLbfeurjSeVN6wK5NnJvRtwplbazwE";
 const FIELD_STUDENT = "學生姓名";
 const FIELD_TITLE   = "標題";
 const FIELD_FILE    = "檔案上傳";
+/** 與 Google 表單題目一字不差時偵測最穩（預設「產出類型」）；老師繳交狀況可選用於限制任務類型 */
+const FIELD_OUTPUT_TYPE = "產出類型";
 
 // 表單若已設定「必須登入／蒐集電子郵件(已驗證)」,可開啟此選項:
 // 只有「填表者的 Google 帳號 email」與 STUDENTS_PRIVATE 裡該位學生的 email 相同時,才會搬檔到個人資料夾。
@@ -58,6 +60,9 @@ const AUTO_OVERWRITE_ON_RESUBMIT = true;
 //   - mode === "keywords"(預設):靠標題比對
 //       keywords:標題包含其中「任一個」就算交了(不分大小寫、忽略前後空白)
 //       例如學生標題寫成「任務零反思」「我的任務0」都會被視為任務零
+//       requireOutputTypes(選填):若有指定,「產出類型」欄內文須包含其中「任一個」substring
+//           (同上不分大小寫)才算繳交;未填則不依類型過濾——可用於標題寫「任務三」
+//           但上傳時選「圖片」不應視為繳交的狀況
 //   - mode === "pdfCount":靠該學生上傳的 PDF 檔總數
 //       minPdfCount:至少幾個 PDF 才算交了(預設 1)
 //       適合學生命名還沒統一,但「就是要傳幾個 PDF」這種類型的任務
@@ -70,7 +75,13 @@ const REQUIRED_TASKS = [
   { id: "task0_1", label: "任務零＋一", mode: "pdfCount", minPdfCount: 2 },
   // 任務二:獨立一欄,靠標題關鍵字判斷(學生之後依規範在標題寫「任務二」等才算繳交)
   { id: "task2", label: "任務二", mode: "keywords", keywords: ["任務二", "任務2", "task 2", "task2"] },
-  { id: "task3", label: "任務三", mode: "keywords", keywords: ["任務三", "任務3", "task 3", "task3"] },
+  {
+    id: "task3",
+    label: "任務三",
+    mode: "keywords",
+    keywords: ["任務三", "任務3", "task 3", "task3"],
+    requireOutputTypes: ["文件"],
+  },
 ];
 
 // 繳交狀況面板:true = 任何人可取得矩陣(不必老師驗證碼);false = 僅限 TEACHERS_PRIVATE 驗證通過
@@ -1035,6 +1046,11 @@ function handleGetSubmissionStatus(body) {
 
   // 是否任一任務需要看檔案?需要的話才額外讀 FIELD_FILE 欄
   const needsFileScan = tasks.some(t => (t.mode || "keywords") !== "keywords");
+  // keywords 任務若指定 requireOutputTypes 則需讀「產出類型」欄
+  const needsOutputTypeColumn = tasks.some(t => {
+    if ((t.mode || "keywords") !== "keywords") return false;
+    return Array.isArray(t.requireOutputTypes) && t.requireOutputTypes.length > 0;
+  });
 
   for (const sheet of ss.getSheets()) {
     if (backendSheets.has(sheet.getName())) continue;
@@ -1044,6 +1060,8 @@ function handleGetSubmissionStatus(body) {
     const idxStudent = headers.findIndex(h => h.includes(FIELD_STUDENT));
     const idxTitle   = headers.findIndex(h => h.includes(FIELD_TITLE));
     const idxFile    = needsFileScan ? headers.findIndex(h => h.includes(FIELD_FILE)) : -1;
+    const idxOutput =
+      needsOutputTypeColumn ? headers.findIndex(h => h.includes(FIELD_OUTPUT_TYPE)) : -1;
     const idxTime    = headers.findIndex(h => h.includes("時間") || h.toLowerCase().includes("timestamp"));
     if (idxStudent < 0 || idxTitle < 0) continue;
 
@@ -1055,10 +1073,19 @@ function handleGetSubmissionStatus(body) {
       const title = String(row[idxTitle] == null ? "" : row[idxTitle]).trim();
       const ts = (idxTime >= 0 && row[idxTime] instanceof Date) ? row[idxTime] : null;
       const fileIds = (idxFile >= 0) ? extractFileIds(row[idxFile]) : [];
+      let outputType = "";
+      if (idxOutput >= 0 && row[idxOutput] != null) {
+        outputType = String(row[idxOutput]).trim();
+      }
 
       // title 可以空(pdfCount 模式不靠標題);但要有姓名才繼續
       if (!submissionsByStudent[sn]) submissionsByStudent[sn] = [];
-      submissionsByStudent[sn].push({ title: title, ts: ts, fileIds: fileIds });
+      submissionsByStudent[sn].push({
+        title: title,
+        ts: ts,
+        fileIds: fileIds,
+        outputType: outputType,
+      });
 
       if (!studentDisplayName[sn]) studentDisplayName[sn] = String(rawName).trim() || sn;
     }
@@ -1112,12 +1139,23 @@ function handleGetSubmissionStatus(body) {
       mode: mode,
       keywords: (t.keywords || []).map(lc).filter(Boolean),
       minPdfCount: typeof t.minPdfCount === "number" && t.minPdfCount > 0 ? t.minPdfCount : 1,
+      requireOutputTypes: (t.requireOutputTypes || []).map(lc).filter(Boolean),
     };
   });
+
+  /** 繳交狀況:若任務設了 requireOutputTypes,該列「產出類型」須包含其中一字 */
+  function rowMatchesOutputTypeFilter(sub, def) {
+    const reqs = def.requireOutputTypes;
+    if (!reqs || reqs.length === 0) return true;
+    const ot = lc(sub.outputType || "");
+    if (!ot) return false;
+    return reqs.some(req => req && ot.indexOf(req) >= 0);
+  }
 
   function matchKeywords(rows, def) {
     const matched = [];
     for (const sub of rows) {
+      if (!rowMatchesOutputTypeFilter(sub, def)) continue;
       const titleLc = lc(sub.title);
       for (const k of def.keywords) {
         if (titleLc.indexOf(k) >= 0) { matched.push(sub); break; }

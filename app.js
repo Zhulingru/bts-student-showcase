@@ -272,18 +272,57 @@
     }).format(d);
   }
 
-  function extractDriveFileId(url) {
-    if (!url || typeof url !== "string") return null;
+  /** 從單一段 URL 或字串抽出第一個疑似 Drive id（與 Apps Script extractFileIds 分段邏輯搭配） */
+  function extractDriveFileIdFromSegment(segment) {
+    if (!segment || typeof segment !== "string") return null;
+    const s = segment.trim();
+    if (!s) return null;
     const patterns = [
       /\/file\/d\/([a-zA-Z0-9_-]+)/,
       /[?&]id=([a-zA-Z0-9_-]+)/,
       /\/d\/([a-zA-Z0-9_-]+)/,
     ];
     for (const p of patterns) {
-      const m = url.match(p);
+      const m = s.match(p);
       if (m) return m[1];
     }
-    return null;
+    const loose = s.match(/[-\w]{25,}/);
+    return loose ? loose[0] : null;
+  }
+
+  /** 一個儲存格內若有多個連結／id（換行或逗號分隔），依序列出、去重 */
+  function extractDriveFileIds(url) {
+    if (!url || typeof url !== "string") return [];
+    const parts = String(url)
+      .split(/[\n,]+/)
+      .map(x => x.trim())
+      .filter(Boolean);
+    const seen = new Set();
+    const out = [];
+    for (const p of parts) {
+      const id = extractDriveFileIdFromSegment(p);
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+    return out;
+  }
+
+  function extractDriveFileId(url) {
+    const ids = extractDriveFileIds(url);
+    return ids.length ? ids[0] : null;
+  }
+
+  /** 多檔並存時：找出含有該 id 的那段 URL（供試 Google 文件類嵌入預覽） */
+  function fileUrlSegmentFor(fullCell, fileId) {
+    if (!fullCell || !fileId) return "";
+    const parts = String(fullCell)
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const hit = parts.find(p => p.includes(fileId));
+    return hit || String(fullCell);
   }
 
   function driveThumb(fileId, width = 800) {
@@ -295,9 +334,9 @@
   }
 
   /** 嵌入預覽網址：PDF／Drive 檔可走 file/preview；Google 原生連結請用對應 product 網址，否則嵌入會失敗。 */
-  function driveEmbeddedPreviewUrl(entry, fileId) {
+  function driveEmbeddedPreviewUrl(fileId, urlHint) {
     const id = encodeURIComponent(fileId);
-    const u = String(entry.fileUrl || "");
+    const u = String(urlHint || "");
     if (/docs\.google\.com\/document\//i.test(u)) {
       return `https://docs.google.com/document/d/${id}/preview`;
     }
@@ -335,24 +374,39 @@
     return type || "產出";
   }
 
-  function getMediaHtml(entry, width = 800) {
-    const fileId = extractDriveFileId(entry.fileUrl);
-
-    if (fileId) {
-      if (isImageType(entry.type)) {
-        return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>🖼</div>'" />`;
-      }
-      if (isVideoType(entry.type)) {
-        return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>🎬</div>'" />`;
-      }
-      if (isDocType(entry.type)) {
-        return `<div class="fallback">📄</div>`;
-      }
-      return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>📎</div>'" />`;
+  /** Feed／學生格等：單一 Drive 檔的縮圖（非嵌入） */
+  function renderSingleDriveThumbForFeed(entry, fileId, width) {
+    if (isImageType(entry.type)) {
+      return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>🖼</div>'" />`;
     }
+    if (isVideoType(entry.type)) {
+      return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>🎬</div>'" />`;
+    }
+    if (isDocType(entry.type)) {
+      return `<div class="fallback">📄</div>`;
+    }
+    return `<img src="${driveThumb(fileId, width)}" alt="${escapeHtml(entry.title)}" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.parentElement.innerHTML+='<div class=&quot;fallback&quot;>📎</div>'" />`;
+  }
 
-    if (entry.linkUrl) return `<div class="fallback">🔗</div>`;
-    return `<div class="fallback">📝</div>`;
+  function getMediaHtml(entry, width = 800) {
+    const fileIds = extractDriveFileIds(entry.fileUrl);
+    if (fileIds.length === 0) {
+      if (entry.linkUrl) return `<div class="fallback">🔗</div>`;
+      return `<div class="fallback">📝</div>`;
+    }
+    if (fileIds.length === 1) {
+      return renderSingleDriveThumbForFeed(entry, fileIds[0], width);
+    }
+    const maxShow = 4;
+    const show = fileIds.slice(0, maxShow);
+    const extra = fileIds.length - show.length;
+    const cellW = Math.max(120, Math.floor(width / 2));
+    const layoutClass = fileIds.length === 2 ? "multi-media-thumb--2" : "multi-media-thumb--grid4";
+    const cells = show
+      .map(id => `<div class="multi-media-cell">${renderSingleDriveThumbForFeed(entry, id, cellW)}</div>`)
+      .join("");
+    const badge = extra > 0 ? `<span class="multi-media-more">+${extra}</span>` : "";
+    return `<div class="multi-media-thumb ${layoutClass}" aria-label="${fileIds.length} 個檔案">${cells}${badge}</div>`;
   }
 
   function escapeHtml(str) {
@@ -704,35 +758,58 @@
     modalBodyEl.innerHTML = bioHtml + worksHtml;
   }
 
-  /** 學生詳情側欄：圖 cover；PDF／文件試 Drive/Google 嵌入預覽（首頁級可視區）；影片先試縮圖 */
-  function renderEntryMediaBlock(entry) {
-    const fileId = extractDriveFileId(entry.fileUrl);
-    if (fileId) {
-      if (isImageType(entry.type)) {
-        return `<img src="${driveThumb(fileId, 800)}" alt="${escapeHtml(entry.title)}" />`;
-      }
-      if (isDocType(entry.type)) {
-        const src = driveEmbeddedPreviewUrl(entry, fileId);
-        return `<div class="entry-media-stack entry-doc-embed-stack">
+  /** 詳情區：單一檔案的預覽（含 PDF embed）；iframeTitleSuffix 會接在標題後供無障礙 */
+  function renderEntrySingleBlockInner(entry, fileId, iframeTitleSuffix) {
+    const hint = fileUrlSegmentFor(entry.fileUrl, fileId);
+    const suffix = iframeTitleSuffix || "";
+
+    if (isImageType(entry.type)) {
+      return `<img src="${driveThumb(fileId, 800)}" alt="${escapeHtml(entry.title)}" />`;
+    }
+    if (isDocType(entry.type)) {
+      const src = driveEmbeddedPreviewUrl(fileId, hint);
+      return `<div class="entry-media-stack entry-doc-embed-stack">
           <iframe
             class="entry-drive-preview"
             src="${src}"
-            title="${escapeHtml(entry.title)} 文件預覽"
+            title="${escapeHtml(entry.title)}${escapeHtml(suffix)}"
             loading="lazy"></iframe>
         </div>`;
-      }
-      if (isVideoType(entry.type)) {
-        return `<div class="entry-media-stack">
+    }
+    if (isVideoType(entry.type)) {
+      return `<div class="entry-media-stack">
           <img class="entry-drive-thumb" src="${driveThumb(fileId, 800)}" alt="" loading="lazy"
             onerror="this.classList.add('is-hidden');var p=this.nextElementSibling;if(p){p.classList.remove('is-hidden');p.setAttribute('aria-hidden','false');}" />
           <div class="entry-media-placeholder entry-media-placeholder--video is-hidden" aria-hidden="true">
             <span class="entry-media-placeholder-icon" aria-hidden="true">🎬</span>
             <span class="entry-media-placeholder-label">影片</span>
-            <span class="entry-media-placeholder-hint">點縮圖或下方「在 Drive 開啟」播放</span>
+            <span class="entry-media-placeholder-hint">點縮圖或下方「Drive 附件」在雲端播放</span>
           </div>
         </div>`;
-      }
-      return `<img src="${driveThumb(fileId, 800)}" alt="${escapeHtml(entry.title)}" />`;
+    }
+    return `<img src="${driveThumb(fileId, 800)}" alt="${escapeHtml(entry.title)}" />`;
+  }
+
+  /** 學生詳情側欄：圖 cover；PDF／文件試 Drive/Google 嵌入預覽（首頁級可視區）；影片先試縮圖；多檔直向排列 */
+  function renderEntryMediaBlock(entry) {
+    const fileIds = extractDriveFileIds(entry.fileUrl);
+    if (fileIds.length === 1) {
+      return renderEntrySingleBlockInner(entry, fileIds[0], "");
+    }
+    if (fileIds.length > 1) {
+      return (
+        `<div class="entry-media-gallery">` +
+        fileIds
+          .map(
+            (id, idx) => `
+          <div class="entry-media-item">
+            ${renderEntrySingleBlockInner(entry, id, ` 附件 ${idx + 1}`)}
+            <span class="entry-media-index">${idx + 1}</span>
+          </div>`
+          )
+          .join("") +
+        `</div>`
+      );
     }
     if (entry.linkUrl) {
       return `<div class="entry-media-placeholder entry-media-placeholder--link" role="img" aria-label="連結項目">
@@ -748,27 +825,32 @@
   }
 
   function renderEntryDetail(entry) {
-    const fileId = extractDriveFileId(entry.fileUrl);
+    const fileIds = extractDriveFileIds(entry.fileUrl);
+    const multiFile = fileIds.length > 1;
     const mediaBlock = renderEntryMediaBlock(entry);
 
     let mediaHref = "";
     let mediaHitLabel = "";
-    if (fileId) {
-      mediaHref = driveOpenUrl(fileId);
+    if (fileIds.length === 1) {
+      mediaHref = driveOpenUrl(fileIds[0]);
       mediaHitLabel = "在 Drive 開啟";
-    } else if (entry.linkUrl) {
+    } else if (!fileIds.length && entry.linkUrl) {
       mediaHref = String(entry.linkUrl).trim();
       mediaHitLabel = "開啟外部連結";
     }
 
-    const hitHtml = mediaHref
-      ? `<a class="entry-media-hit" href="${escapeHtml(mediaHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(mediaHitLabel)}（新分頁）" title="${escapeHtml(mediaHitLabel)}"></a>`
-      : "";
+    const hitHtml =
+      !multiFile && mediaHref
+        ? `<a class="entry-media-hit" href="${escapeHtml(mediaHref)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(mediaHitLabel)}（新分頁）" title="${escapeHtml(mediaHitLabel)}"></a>`
+        : "";
 
     const links = [];
-    if (fileId) {
-      links.push(`<a href="${escapeHtml(driveOpenUrl(fileId))}" target="_blank" rel="noopener noreferrer">在 Drive 開啟</a>`);
-    }
+    fileIds.forEach((id, i) => {
+      const label = fileIds.length === 1 ? "在 Drive 開啟" : `Drive 附件 ${i + 1}`;
+      links.push(
+        `<a href="${escapeHtml(driveOpenUrl(id))}" target="_blank" rel="noopener noreferrer">${label}</a>`
+      );
+    });
     if (entry.linkUrl) {
       links.push(`<a href="${escapeHtml(entry.linkUrl)}" target="_blank" rel="noopener noreferrer">外部連結 ↗</a>`);
     }
@@ -776,7 +858,9 @@
     const reactionsHtml = socialEnabled ? renderReactionsBar(entry) : "";
     const commentsHtml = socialEnabled ? renderCommentsSection(entry) : "";
 
-    const mediaShellClass = hitHtml ? "entry-media entry-media--clickable" : "entry-media";
+    let mediaShellClass = "entry-media";
+    if (multiFile) mediaShellClass += " entry-media--multi";
+    else if (hitHtml) mediaShellClass += " entry-media--clickable";
 
     return `
       <div class="entry">
