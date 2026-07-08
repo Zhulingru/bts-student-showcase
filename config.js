@@ -68,25 +68,18 @@ const CONFIG = {
     { id: "parent",  label: "家長", emoji: "👨‍👩‍👦" },
   ],
 
-  // ─── 老師面板（選用）──────────────────────────────────
-  // 老師可以透過「老師登入」進入「📊 繳交狀況」面板，看到全班對 REQUIRED_TASKS
-  // 的繳交矩陣（即時更新）。需要 appsScriptUrl 已啟用。
-  //
+  // ─── 老師登入（選用）──────────────────────────────────
+  // 老師可透過「老師登入」輸入驗證碼，以老師身分按讚／留言（顯示 👩‍🏫 徽章）。
   // 真正的驗證碼（code）寫在 apps-script.gs 的 TEACHERS_PRIVATE 裡，這裡只放姓名／顯示名稱。
-  // 多位老師就加多筆；想關閉整個老師面板把陣列清空即可（自動隱藏入口）。
-  // 注意：teachers[].name 必須和 TEACHERS_PRIVATE[].name 一字不差。
+  // teachers[].name 必須和 TEACHERS_PRIVATE[].name 一字不差。
   teachers: [
     { name: "Chibi", label: "Chibi 老師" },
   ],
 
-  // 與 apps-script.gs 的 SUBMISSION_DASHBOARD_PUBLIC 對齊：true 時首屏可先顯示 📊（仍以 doGet 回傳為準）
-  submissionDashboardPublic: true,
-
   // ─── 展覽模式（家長 / 老師來看的公開展場）─────────────────────
   // true 時：
   //   - 隱藏「新增作品」按鈕（家長不需要看到後台入口）
-  //   - 隱藏「繳交狀況」按鈕（老師管理用途，展覽時不外露）
-  //   - 顯示網頁上方的「引言區」與底部的「任務三 · 週誌總覽」
+  //   - 顯示網頁上方的「引言區」
   // 之後要開放給學生上傳時，改成 false 即可回到原本狀態。
   publicViewMode: true,
 
