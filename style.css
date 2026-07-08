@@ -3071,3 +3071,30 @@ main {
   }
   .task3-pill-label { font-size: 9.5px; }
 }
+
+/* ===== 社交提示 Toast（未登入時按讚／留言） ===== */
+.social-hint-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  z-index: 9999;
+  transform: translate(-50%, 12px);
+  max-width: min(92vw, 420px);
+  padding: 14px 22px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  text-align: center;
+  border-radius: 999px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.social-hint-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

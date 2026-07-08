@@ -22,6 +22,7 @@
   const STUDENT_TO_CLASS = new Map(
     (CONFIG.students || []).map(s => [normalizeName(s.name), s.class])
   );
+  const STUDENT_NAME_SET = new Set((CONFIG.students || []).map(s => normalizeName(s.name)));
 
   // 學生 → 專題主題（來自 config.students[].topic）
   const STUDENT_TOPICS = new Map(
@@ -52,23 +53,80 @@
       const obj = JSON.parse(raw);
       if (!obj || !obj.userId || !obj.userName) return null;
       if (!obj.role) obj.role = "student";
+      // 舊版 localStorage 沒有 explicit：已選學生或自填暱稱視為已登入，僅自動「訪客」不算
+      if (obj.explicit === undefined) {
+        if (obj.role === "student" && STUDENT_NAME_SET.has(normalizeName(obj.userName))) {
+          obj.explicit = true;
+        } else if (obj.role !== "student" && normalizeName(obj.userName) !== normalizeName("訪客")) {
+          obj.explicit = true;
+        } else {
+          obj.explicit = false;
+        }
+      }
       return obj;
     } catch (_) {
       return null;
     }
   }
 
-  function saveIdentity(name, role) {
+  function saveIdentity(name, role, options) {
+    const opts = options || {};
     const existing = loadIdentity();
     const next = {
       userId: (existing && existing.userId) || generateUuid(),
       userName: name,
       role: role || "student",
+      explicit: Object.prototype.hasOwnProperty.call(opts, "explicit") ? !!opts.explicit : true,
     };
     localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(next));
     identity = next;
     return next;
   }
+
+  function hasExplicitIdentity() {
+    return Boolean(identity && identity.explicit === true);
+  }
+
+  const SOCIAL_HINT_MESSAGE = "從網站右上角登入後可以按讚留言";
+  let socialHintTimer = null;
+
+  function showSocialHintToast() {
+    let el = document.getElementById("social-hint-toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "social-hint-toast";
+      el.className = "social-hint-toast";
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+      document.body.appendChild(el);
+    }
+    el.textContent = SOCIAL_HINT_MESSAGE;
+    el.classList.add("is-visible");
+    clearTimeout(socialHintTimer);
+    socialHintTimer = setTimeout(() => el.classList.remove("is-visible"), 3200);
+  }
+
+  function requireExplicitIdentityForSocial() {
+    if (hasExplicitIdentity()) return true;
+    showSocialHintToast();
+    return false;
+  }
+
+  // 首次進站或 localStorage 裡是已移除的示範學生（如 Chibi）時，預設為「訪客」
+  function ensureDefaultIdentity() {
+    if (!GUEST_MODE_ENABLED || GUEST_ROLES.length === 0) return;
+    const invalidStudent =
+      identity &&
+      identity.role === "student" &&
+      !STUDENT_NAME_SET.has(normalizeName(identity.userName));
+    if (!identity || invalidStudent) {
+      const defaultRole = GUEST_ROLES[0].id || "guest";
+      const defaultName = GUEST_ROLES[0].label || "訪客";
+      saveIdentity(defaultName, defaultRole, { explicit: false });
+    }
+  }
+
+  ensureDefaultIdentity();
 
   function generateUuid() {
     if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -954,8 +1012,6 @@
     const entryId = entryIdFor(entry);
     const counts = reactionCountsFor(entryId);
     const emojis = CONFIG.reactionEmojis || [];
-    const disabled = !identity;
-    const title = disabled ? "title=\"請先從右上角『選擇身分』\"" : "";
 
     return `
       <div class="reactions-bar" data-entry-id="${escapeHtml(entryId)}">
@@ -965,8 +1021,7 @@
           return `
             <button type="button"
                     class="reaction-btn ${active ? "active" : ""}"
-                    data-emoji="${escapeHtml(emoji)}"
-                    ${disabled ? "disabled" : ""} ${title}>
+                    data-emoji="${escapeHtml(emoji)}">
               <span class="reaction-emoji">${emoji}</span>
               <span class="reaction-count">${count}</span>
             </button>
@@ -979,7 +1034,9 @@
   function renderCommentsSection(entry) {
     const entryId = entryIdFor(entry);
     const list = commentsFor(entryId);
-    const disabled = !identity;
+    const placeholder = hasExplicitIdentity()
+      ? "分享你的想法…（最多 200 字）"
+      : "登入後即可留言（請從右上角選擇身分）";
 
     return `
       <div class="comments-section" data-entry-id="${escapeHtml(entryId)}">
@@ -990,11 +1047,10 @@
         <div class="comment-list">${renderCommentListItems(list)}</div>
         <form class="comment-form" data-entry-id="${escapeHtml(entryId)}">
           <textarea
-            placeholder="${disabled ? "請先從右上角「選擇身分」" : "分享你的想法…（最多 200 字）"}"
+            placeholder="${placeholder}"
             maxlength="200"
-            rows="1"
-            ${disabled ? "disabled" : ""}></textarea>
-          <button type="submit" ${disabled ? "disabled" : ""}>送出</button>
+            rows="1"></textarea>
+          <button type="submit">送出</button>
         </form>
       </div>
     `;
@@ -1033,7 +1089,6 @@
           const countEl = btn.querySelector(".reaction-count");
           if (countEl) countEl.textContent = counts[emoji] || 0;
           btn.classList.toggle("active", userHasReacted(id, emoji));
-          btn.disabled = !identity;
         });
       }
       const section = modalBodyEl.querySelector(`.comments-section[data-entry-id="${cssEscape(id)}"]`);
@@ -1125,7 +1180,7 @@
   }
 
   async function handleReactionClick(btn) {
-    if (!identity) { openIdentityPicker(); return; }
+    if (!requireExplicitIdentityForSocial()) return;
     const bar = btn.closest(".reactions-bar");
     if (!bar) return;
     const entryId = bar.dataset.entryId;
@@ -1182,7 +1237,7 @@
   }
 
   async function handleCommentSubmit(form) {
-    if (!identity) { openIdentityPicker(); return; }
+    if (!requireExplicitIdentityForSocial()) return;
     const textarea = form.querySelector("textarea");
     const button = form.querySelector("button");
     const entryId = form.dataset.entryId;
@@ -1314,9 +1369,6 @@
       identityBtn.classList.add("is-unset");
     }
   }
-
-  // 所有學生姓名（normalized），給訪客表單做重名檢查
-  const STUDENT_NAME_SET = new Set((CONFIG.students || []).map(s => normalizeName(s.name)));
 
   // ---------- 學生驗證碼（後端驗證）----------
   // 驗證碼本身不在前端，而是在 Apps Script 的 STUDENTS_PRIVATE 裡（私密、不進 GitHub）。
