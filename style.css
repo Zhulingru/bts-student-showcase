@@ -22,6 +22,9 @@
 
 * { box-sizing: border-box; }
 
+/* 讓 [hidden] 屬性始終生效，即使某些 class（例如 .btn）設定了 display: inline-flex */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -556,6 +559,7 @@ main {
   margin-top: 0;
   display: -webkit-box;
   -webkit-line-clamp: 1;
+  line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -632,7 +636,7 @@ main {
 .student-card .class-ribbon {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 10px;
   z-index: 2;
   font-family: var(--font-mono);
   color: var(--paper);
@@ -709,6 +713,32 @@ main {
 .student-card .count.zero {
   color: var(--ash);
   opacity: 0.5;
+}
+
+/* 專題主題：名字下方的斜體副標，像編輯設計裡的作品名 */
+.student-card .topic {
+  margin: 0;
+  padding: 0 2px;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--graphite);
+  letter-spacing: 0;
+  /* 超過 2 行截斷加省略號；預留 2 行高度讓卡片對齊整齊 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.8em;
+}
+.student-card .topic.is-empty {
+  visibility: hidden;
+}
+.student-card:hover .topic {
+  color: var(--ink);
 }
 
 /* ===== Modal ===== */
@@ -802,6 +832,33 @@ main {
 .modal-title-text {
   min-width: 0;
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-title-line {
+  display: block;
+}
+
+.modal-title-meta {
+  color: var(--text-soft);
+  font-weight: 400;
+  font-size: 14px;
+  margin-left: 2px;
+}
+
+/* 詳情彈窗名字下方的專題主題：跟卡片同一種斜體語彙，字大一級 */
+.modal-title-topic {
+  display: block;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 17px;
+  line-height: 1.35;
+  color: var(--graphite);
+  letter-spacing: 0;
+  margin-top: 2px;
 }
 
 .modal-close {
@@ -2208,7 +2265,8 @@ main {
 .inspiration-card-media {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  /* 學長姐海報實際比例是 16:9 橫幅，配合原比例避免海報標題白區被誤認為破圖 */
+  aspect-ratio: 16 / 9;
   background: var(--paper-2);
   overflow: hidden;
   border-bottom: 1px solid var(--line);
@@ -2218,7 +2276,9 @@ main {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain 保留完整海報構圖；用溫暖底色填 letterbox */
+  object-fit: contain;
+  background: var(--paper);
   transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .inspiration-card:hover .inspiration-card-media img { transform: scale(1.04); }
@@ -2406,4 +2466,608 @@ main {
   .inspiration-lightbox-figure img {
     max-height: calc(100vh - 110px);
   }
+}
+
+/* ==============================================================
+   策展引言（Curator's Note）
+   放在 hero 之後、class-filter 之前，只在 publicViewMode 顯示
+   ============================================================== */
+.curator-intro[hidden] { display: none; }
+
+.curator-intro {
+  max-width: 1240px;
+  margin: 0 auto 40px;
+  padding: 0 40px;
+}
+
+.curator-intro-inner {
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  padding: 76px 8% 84px;
+  position: relative;
+  background: var(--paper-2);
+}
+
+.curator-intro-inner::before,
+.curator-intro-inner::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+  background: var(--line);
+}
+.curator-intro-inner::before { top: 12px; }
+.curator-intro-inner::after  { bottom: 12px; }
+
+.curator-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--graphite);
+  margin-bottom: 28px;
+  font-weight: 500;
+}
+
+.curator-headline {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(28px, 4.6vw, 46px);
+  line-height: 1.2;
+  color: var(--ink);
+  margin: 0 0 24px;
+  letter-spacing: -0.005em;
+  max-width: 24ch;
+}
+
+.curator-highlight {
+  color: var(--accent);
+  font-style: italic;
+  font-weight: 500;
+}
+
+.curator-lede {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(15px, 1.35vw, 18px);
+  color: var(--graphite);
+  line-height: 1.7;
+  margin: 0 0 60px;
+}
+
+/* 引言內文區塊：統一寬度，避免各段 max-width 不一致造成行數差異 */
+.curator-lede,
+.curator-prose,
+.curator-signoff,
+.curator-note {
+  max-width: 100%;
+}
+
+.curator-block {
+  margin-top: 56px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line-soft);
+}
+.curator-block:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+
+.curator-block-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  margin-bottom: 28px;
+}
+
+.curator-block-idx {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--ash);
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.curator-block-heading h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(20px, 2.4vw, 26px);
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+}
+
+.curator-tasks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px 20px;
+}
+@media (max-width: 900px) {
+  .curator-tasks { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .curator-tasks { grid-template-columns: 1fr; }
+}
+
+.curator-task {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 20px 22px 22px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.curator-task:hover {
+  transform: translateY(-2px);
+  border-color: var(--ink);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
+}
+
+.curator-task .task-num {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  min-width: 44px;
+}
+
+.curator-task .task-body h4 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14.5px;
+  color: var(--ink);
+  line-height: 1.4;
+  letter-spacing: -0.003em;
+}
+
+.curator-task .task-body p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--graphite);
+  line-height: 1.55;
+}
+
+/* 未完成的 milestone：虛線框 + 標示 */
+.curator-task.is-pending {
+  border-style: dashed;
+  border-color: var(--ash);
+  background: transparent;
+}
+.curator-task.is-pending:hover {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+.curator-task.is-pending .task-num {
+  color: var(--ash);
+}
+
+.curator-task .task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.curator-task .task-title-row h4 {
+  margin: 0;
+}
+
+.curator-task .task-status {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--accent);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  font-weight: 600;
+  border-radius: 999px;
+  text-transform: none;
+}
+
+.curator-task .task-date {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--graphite);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  margin: 0 0 8px !important;
+  font-weight: 500;
+  opacity: 0.72;
+}
+/* 未完成的 milestone：日期用 accent 突顯「未來的日子」 */
+.curator-task.is-pending .task-date {
+  color: var(--accent);
+  opacity: 1;
+  font-weight: 600;
+}
+
+/* 3 欄格線下若最後一列剩下 1 張卡（如目前 7 個 milestone），置中避免孤零零；
+   2 欄 / 1 欄佈局不套用此規則（在下方 responsive 區塊會自動 fallback） */
+@media (min-width: 901px) {
+  .curator-tasks .curator-task:nth-child(3n+1):last-child {
+    grid-column: 2;
+  }
+}
+
+/* 補充說明（NOTE）：右側粗線標記，資訊層次略低但可讀 */
+.curator-note {
+  margin-top: 36px;
+  padding: 22px 26px 24px;
+  border-left: 3px solid var(--accent);
+  background: var(--paper);
+  display: block;
+}
+
+.curator-note-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: var(--accent);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.curator-note p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.85;
+  color: var(--graphite);
+}
+
+.curator-prose {
+  font-size: 15px;
+  line-height: 1.85;
+  color: var(--ink-2);
+  margin-bottom: 32px;
+}
+.curator-prose p {
+  margin: 0 0 18px;
+}
+.curator-prose p:last-child { margin-bottom: 0; }
+
+.curator-prose strong {
+  font-weight: 500;
+  color: var(--ink);
+  background: linear-gradient(to top, rgba(160, 50, 26, 0.14) 42%, transparent 42%);
+  padding: 0 2px;
+}
+
+.curator-prose em {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  color: var(--accent);
+  font-size: 1.03em;
+  letter-spacing: 0;
+}
+
+.curator-prose-closing {
+  margin-top: 40px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 32px;
+}
+
+.curator-goals {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  margin: 32px 0 4px;
+}
+
+.curator-goal {
+  padding: 28px 28px 30px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  position: relative;
+  transition: transform 0.35s ease, background 0.35s ease;
+}
+.curator-goal:hover {
+  transform: translateY(-3px);
+  background: var(--paper-2);
+}
+
+.curator-goal .goal-num {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  margin-bottom: 14px;
+  font-weight: 500;
+}
+
+.curator-goal h4 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(18px, 2vw, 22px);
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+
+.curator-goal p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--graphite);
+  line-height: 1.7;
+}
+
+.curator-signoff {
+  margin-top: 64px;
+  padding-top: 36px;
+  border-top: 1px solid var(--ink);
+}
+
+.curator-signoff p {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.85;
+  color: var(--ink-2);
+}
+
+.curator-signoff strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.curator-signature {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--graphite);
+  letter-spacing: 0;
+  margin-top: 18px !important;
+}
+
+/* ==============================================================
+   任務三 · 週誌 · 學生卡片上的 pill
+   ============================================================== */
+.student-card {
+  position: relative;
+}
+
+.task3-pill {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px 5px 8px;
+  background: rgba(10, 10, 10, 0.82);
+  color: rgba(255, 255, 255, 0.96);
+  font-family: var(--font-body);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: transform 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.task3-pill:hover {
+  background: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.24);
+}
+
+.task3-pill-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.task3-pill-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+
+/* ==============================================================
+   引言區 · 可展開段落（策展理念 + 補充說明）
+   使用原生 <details>；預設收合，避免頁首過長
+   ============================================================== */
+.curator-more {
+  margin-top: 44px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 32px;
+}
+
+.curator-more-summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  transition: transform 0.25s ease, background 0.25s ease, color 0.25s ease;
+  user-select: none;
+}
+.curator-more-summary::-webkit-details-marker { display: none; }
+.curator-more-summary:hover {
+  background: var(--ink);
+  color: var(--paper);
+  transform: translateY(-1px);
+}
+
+.curator-more-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--accent);
+  border: 1px solid currentColor;
+  transition: transform 0.35s ease;
+}
+.curator-more[open] .curator-more-icon {
+  transform: rotate(45deg);
+}
+.curator-more-summary:hover .curator-more-icon {
+  color: var(--paper);
+}
+
+.curator-more-en {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  color: var(--ash);
+  text-transform: uppercase;
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+  margin-left: 4px;
+}
+.curator-more-summary:hover .curator-more-en {
+  color: rgba(250, 246, 238, 0.7);
+  border-left-color: rgba(250, 246, 238, 0.35);
+}
+
+/* 展開/收合狀態下切換兩組文字（<details open> 判定） */
+.curator-more .curator-more-label-open,
+.curator-more .curator-more-en-open { display: none; }
+.curator-more[open] .curator-more-label-closed,
+.curator-more[open] .curator-more-en-closed { display: none; }
+.curator-more[open] .curator-more-label-open,
+.curator-more[open] .curator-more-en-open { display: inline; }
+
+/* 展開後內容：讓每次展開有柔和的漸入 */
+.curator-more-content {
+  margin-top: 8px;
+  animation: curatorMoreFadeIn 0.45s ease both;
+}
+
+@keyframes curatorMoreFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* details 內第一個 .curator-block 不用再有頂線（.curator-more 已提供） */
+.curator-more-content .curator-block:first-child {
+  margin-top: 20px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ==============================================================
+   Section 可收合（用於「過去作品參考」）
+   ============================================================== */
+.section-collapsible {
+  display: block;
+}
+
+/* 讓 <summary> 沿用原本 .section-heading 的橫排樣式 */
+.section-heading-summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.25s ease;
+}
+.section-heading-summary::-webkit-details-marker { display: none; }
+.section-heading-summary:hover {
+  border-bottom-color: var(--accent);
+}
+.section-heading-summary:hover h2 {
+  color: var(--accent);
+}
+
+/* 收合狀態指示器（放在 section-sub 之後） */
+.section-toggle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin-left: 18px;
+  padding: 4px 12px;
+  border: 1px solid var(--ink);
+  transition: background 0.25s ease, color 0.25s ease;
+  white-space: nowrap;
+}
+.section-heading-summary:hover .section-toggle {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* 藉由 [open] 切換兩個提示的顯示 */
+.section-collapsible .section-toggle-open { display: none; }
+.section-collapsible[open] .section-toggle-closed { display: none; }
+.section-collapsible[open] .section-toggle-open { display: inline; }
+
+/* 展開後內容淡入 */
+.section-collapsible[open] > :not(summary) {
+  animation: curatorMoreFadeIn 0.45s ease both;
+}
+
+/* ===== Responsive tweaks for curator intro / collapsibles ===== */
+@media (max-width: 820px) {
+  .curator-intro { padding: 0 22px; margin-bottom: 30px; }
+  .curator-intro-inner {
+    padding: 48px 22px 56px;
+  }
+  .curator-intro-inner::before,
+  .curator-intro-inner::after { left: 22px; right: 22px; }
+
+  .curator-headline { font-size: clamp(22px, 6.5vw, 32px); }
+  .curator-lede { margin-bottom: 40px; }
+
+  .curator-block { margin-top: 40px; padding-top: 24px; }
+  .curator-block-heading { gap: 14px; margin-bottom: 20px; }
+  .curator-block-heading h3 { font-size: 18px; }
+
+  .curator-tasks { grid-template-columns: 1fr; gap: 14px; }
+  .curator-task { padding: 16px 18px; }
+  .curator-task .task-num { font-size: 26px; min-width: 36px; }
+
+  .curator-goals { grid-template-columns: 1fr; gap: 14px; }
+  .curator-goal { padding: 22px 22px 24px; }
+
+  .curator-signoff { margin-top: 44px; padding-top: 28px; }
+
+  .curator-more { margin-top: 36px; padding-top: 26px; }
+  .curator-more-summary {
+    padding: 10px 16px;
+    font-size: 13px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .curator-more-en {
+    font-size: 9.5px;
+    padding-left: 10px;
+    letter-spacing: 0.2em;
+  }
+
+  .section-toggle {
+    margin-left: 12px;
+    padding: 3px 9px;
+    font-size: 10px;
+  }
+
+  .task3-pill {
+    top: 8px;
+    right: 8px;
+    padding: 4px 7px;
+    font-size: 9.5px;
+  }
+  .task3-pill-label { font-size: 9.5px; }
 }

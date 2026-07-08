@@ -23,6 +23,14 @@
     (CONFIG.students || []).map(s => [normalizeName(s.name), s.class])
   );
 
+  // 學生 → 專題主題（來自 config.students[].topic）
+  const STUDENT_TOPICS = new Map(
+    (CONFIG.students || []).map(s => [normalizeName(s.name), (s.topic || "").trim()])
+  );
+  function topicFor(studentName) {
+    return STUDENT_TOPICS.get(normalizeName(studentName)) || "";
+  }
+
   function getClassInfo(classId) {
     return CLASS_BY_ID.get(classId) || { id: classId, label: classId || "未分班", color: "#8a93a6" };
   }
@@ -197,7 +205,27 @@
   document.getElementById("site-title").textContent = CONFIG.siteTitle;
   document.getElementById("site-subtitle").textContent = CONFIG.siteSubtitle;
   document.getElementById("upload-btn").href = CONFIG.formUrl;
-  document.getElementById("refresh-interval-label").textContent = CONFIG.refreshIntervalSeconds;
+
+  // ---------- 展覽模式（家長 / 老師公開展覽時使用）----------
+  // 統一在這裡處理：隱藏管理用按鈕、顯示引言區
+  // 任務三週誌以「學生卡片上的 📓 週誌 pill」呈現，不再有獨立的總覽區
+  const PUBLIC_VIEW_MODE = CONFIG.publicViewMode === true;
+  const TASK3_URLS = (CONFIG.task3Urls && typeof CONFIG.task3Urls === "object") ? CONFIG.task3Urls : {};
+
+  const curatorIntroEl = document.getElementById("curator-intro");
+  const uploadBtnEl = document.getElementById("upload-btn");
+
+  if (PUBLIC_VIEW_MODE) {
+    if (curatorIntroEl) curatorIntroEl.hidden = false;
+    if (uploadBtnEl) uploadBtnEl.hidden = true;
+  } else {
+    if (uploadBtnEl) uploadBtnEl.hidden = false;
+  }
+
+  function task3UrlFor(studentName) {
+    if (!studentName) return "";
+    return TASK3_URLS[studentName] || TASK3_URLS[String(studentName).trim()] || "";
+  }
 
   const statusEl = document.getElementById("status-text");
   const lastUpdatedEl = document.getElementById("last-updated");
@@ -678,6 +706,22 @@
       thumbHtml = `<span class="empty">尚未上傳</span>`;
     }
 
+    // 展覽模式下每張卡片右下角加一顆「週誌」按鈕，直接開啟該同學的任務三 Google Docs
+    const task3Url = task3UrlFor(student.name);
+    const task3Btn = PUBLIC_VIEW_MODE && task3Url
+      ? `<a class="task3-pill" href="${escapeHtml(task3Url)}" target="_blank" rel="noopener"
+             title="開啟 ${escapeHtml(student.name)} 的任務三 · 週誌"
+             onclick="event.stopPropagation()">
+           <span class="task3-pill-icon" aria-hidden="true">📓</span>
+           <span class="task3-pill-label">週誌</span>
+         </a>`
+      : "";
+
+    const topic = (student.topic || "").trim();
+    const topicHtml = topic
+      ? `<p class="topic" title="${escapeHtml(topic)}">${escapeHtml(topic)}</p>`
+      : `<p class="topic is-empty" aria-hidden="true"></p>`;
+
     return `
       <div class="student-card" data-student="${escapeHtml(student.name)}">
         <span class="class-ribbon" style="background:${cls.color}">${escapeHtml(student.class)}</span>
@@ -686,6 +730,8 @@
           <span class="name">${escapeHtml(student.name)}</span>
           <span class="count ${count === 0 ? "zero" : ""}">${count}</span>
         </div>
+        ${topicHtml}
+        ${task3Btn}
       </div>
     `;
   }
@@ -745,7 +791,11 @@
     const avatarHtml = avatar
       ? `<span class="modal-avatar">${renderAvatarImg(avatar, 160)}</span>`
       : "";
-    modalTitleEl.innerHTML = `${avatarHtml}<span class="modal-title-text">${escapeHtml(studentName)}${classTag} <span style="color:var(--text-soft);font-weight:400;font-size:14px">· 共 ${entries.length} 則產出</span></span>`;
+    const topic = topicFor(studentName);
+    const topicLineHtml = topic
+      ? `<span class="modal-title-topic">${escapeHtml(topic)}</span>`
+      : "";
+    modalTitleEl.innerHTML = `${avatarHtml}<span class="modal-title-text"><span class="modal-title-line">${escapeHtml(studentName)}${classTag} <span class="modal-title-meta">· 共 ${entries.length} 則產出</span></span>${topicLineHtml}</span>`;
 
     const bioHtml = renderStudentBioSection(studentName);
     let worksHtml = "";
@@ -1405,7 +1455,7 @@
       <div class="identity-group identity-group-teacher">
         <div class="identity-group-label">
           <span class="dot" style="background:#10b981"></span>
-          老師登入（看「繳交狀況」面板）
+          老師登入
         </div>
         <div class="identity-teacher-options">${teacherBtns}</div>
         ${logoutHtml}
@@ -1935,6 +1985,11 @@
 
   function refreshTeacherUiState() {
     if (!teacherDashBtn) return;
+    // 展覽模式下強制隱藏管理按鈕，即使後端說可以顯示也不外露
+    if (PUBLIC_VIEW_MODE) {
+      teacherDashBtn.hidden = true;
+      return;
+    }
     const showBtn =
       socialEnabled &&
       (submissionDashboardPublic || (isAdmin() && serverTeachers.length > 0));

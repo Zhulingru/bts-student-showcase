@@ -29,7 +29,7 @@
           <span class="identity-name" id="identity-name">選擇身分</span>
           <span class="identity-caret">▾</span>
         </button>
-        <a id="upload-btn" class="btn btn-primary" href="#" target="_blank" rel="noopener">
+        <a id="upload-btn" class="btn btn-primary" href="#" target="_blank" rel="noopener" hidden>
           新增作品
         </a>
         <button id="refresh-btn" class="btn btn-ghost" title="手動刷新">⟳</button>
@@ -47,6 +47,147 @@
       <div class="hero-eyebrow">114T3 Exhibition</div>
       <h1 id="site-title" class="hero-title">載入中…</h1>
       <p id="site-subtitle" class="hero-sub"></p>
+    </div>
+  </section>
+
+  <!-- 策展引言（家長 / 老師來看時的入口說明；由 publicViewMode 控制是否顯示） -->
+  <section id="curator-intro" class="curator-intro" aria-labelledby="curator-intro-heading" hidden>
+    <div class="curator-intro-inner">
+      <div class="curator-eyebrow">關於這面牆</div>
+      <h2 id="curator-intro-heading" class="curator-headline">
+        <span class="curator-highlight">28</span> 位同學各自的一段路
+      </h2>
+      <p class="curator-lede">
+        課堂中的提問如何從自己出發形塑過程產出最終的成果
+      </p>
+      <!-- 01 · 六個階段 -->
+      <div class="curator-block">
+        <div class="curator-block-heading">
+          <span class="curator-block-idx">01</span>
+          <h3>六個階段  ·  Six Milestones</h3>
+        </div>
+        <ol class="curator-tasks">
+          <li class="curator-task">
+            <span class="task-num">00</span>
+            <div class="task-body">
+              <h4>任務零  ·  分組回顧過去校內課程</h4>
+              <p class="task-date">5/4</p>
+              <p>從已有的學習經驗中找靈感</p>
+            </div>
+          </li>
+          <li class="curator-task">
+            <span class="task-num">01</span>
+            <div class="task-body">
+              <h4>任務一  ·  個人專案經驗整理</h4>
+              <p class="task-date">5/11</p>
+              <p>盤點自己過去做過什麼、擅長什麼</p>
+            </div>
+          </li>
+          <li class="curator-task">
+            <span class="task-num">02</span>
+            <div class="task-body">
+              <h4>任務二  ·  初步專題提案簡報</h4>
+              <p class="task-date">5/18</p>
+              <p>把想法變成可以被討論的雛形</p>
+            </div>
+          </li>
+          <li class="curator-task">
+            <span class="task-num">03</span>
+            <div class="task-body">
+              <div class="task-title-row">
+                <h4>任務三  ·  每週週誌與專題計劃</h4>
+                <span class="task-status is-ongoing">持續進行中</span>
+              </div>
+              <p class="task-date">5/26 –</p>
+              <p>讓過程被看見、讓思考被記錄</p>
+            </div>
+          </li>
+          <li class="curator-task">
+            <span class="task-num">04</span>
+            <div class="task-body">
+              <h4>階段檢核一  ·  進度分享</h4>
+              <p class="task-date">6/9</p>
+              <p>初步分享目前的思考與進度，蒐集老師與同儕的回饋</p>
+            </div>
+          </li>
+          <li class="curator-task">
+            <span class="task-num">05</span>
+            <div class="task-body">
+              <h4>階段檢核二  ·  報告簡報</h4>
+              <p class="task-date">6/30</p>
+              <p>以正式簡報向老師與同儕匯報進度，接受檢核與回饋</p>
+            </div>
+          </li>
+          <li class="curator-task is-pending">
+            <span class="task-num">06</span>
+            <div class="task-body">
+              <div class="task-title-row">
+                <h4>最終海報報告</h4>
+                <span class="task-status">未完成</span>
+              </div>
+              <p class="task-date">7/21 – 7/22</p>
+              <p>以 A3 海報配合口頭報告，向家長與老師呈現最終作品與整段學習歷程</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <!-- 02 之後（策展理念 + 補充 + 收束）預設收合，避免引言區過長 -->
+      <details class="curator-more">
+        <summary class="curator-more-summary">
+          <span class="curator-more-icon" aria-hidden="true">＋</span>
+          <span class="curator-more-text">
+            <span class="curator-more-label-closed">閱讀完整策展理念與補充說明</span>
+            <span class="curator-more-label-open">收合以上內容</span>
+          </span>
+          <span class="curator-more-en">
+            <span class="curator-more-en-closed">READ MORE</span>
+            <span class="curator-more-en-open">COLLAPSE</span>
+          </span>
+        </summary>
+
+        <div class="curator-more-content">
+          <!-- 02 · 過程與成果 -->
+          <div class="curator-block">
+            <div class="curator-block-heading">
+              <span class="curator-block-idx">02</span>
+              <h3>過程與成果，一樣重要</h3>
+            </div>
+            <div class="curator-prose">
+              <p>「專題式學習」是一種<strong>過程與成果兼具</strong>的學習模式，我相信好的過程一定會帶來好的結果。每個人心中「好的結果」樣貌不同，這正是專題最迷人的地方：<em>階段是共同的，抵達的形狀是個人的。</em></p>
+              <p>對有些同學來說，光是「做好一件事」就需要不斷練習；還要同步記錄，難度又更高一些。因此無論選擇什麼主題，希望每一位同學都能在這段過程中觸及兩件事：</p>
+            </div>
+
+            <div class="curator-goals">
+              <div class="curator-goal">
+                <span class="goal-num">▸ 01</span>
+                <h4>更認識自己</h4>
+                <p>知道自己在什麼節奏、方法、狀態下最能／不能學。</p>
+              </div>
+              <div class="curator-goal">
+                <span class="goal-num">▸ 02</span>
+                <h4>更突破自己</h4>
+                <p>從當前的能力邊界，多推進一小步。</p>
+              </div>
+            </div>
+
+            <div class="curator-prose curator-prose-closing">
+              <p>學習經驗的正向累積，會極度影響後續的學習自我效能感。因此在「創造成功經驗」與「要求品質」之間，即會是一直嘗試的平衡。</p>
+            </div>
+
+            <aside class="curator-note">
+              <span class="curator-note-label">補充說明  ·  A NOTE</span>
+              <p>有些同學在過程中因請假、更換主題等情況，某些任務並未如期完成。由於本學期的專題時程安排，我們並未再回過頭補齊之前的進度，而是讓大家繼續跟著其他同學一起往下走。</p>
+            </aside>
+          </div>
+
+          <!-- 引路 -->
+          <div class="curator-signoff">
+            <p>歡迎家長與老師們看看每一個同學的紀錄，看他們如何一週一週把思考、卡頓與突破，寫進歷程之中，不過網站的資料並不會包含最終成果，因此也請大家敬請期待。</p>
+            <p class="curator-signature"></p>
+          </div>
+        </div>
+      </details>
     </div>
   </section>
 
@@ -80,16 +221,22 @@
       </div>
     </section>
 
-    <!-- 歷屆作品參考（學長姐海報） -->
+    <!-- 過去作品參考（學長姐海報）：點標題可展開/收合，預設收合避免頁面過長 -->
     <section id="inspiration-section" class="section inspiration-section" aria-labelledby="inspiration-heading" hidden>
-      <div class="section-heading">
-        <h2 id="inspiration-heading">歷屆作品參考</h2>
-        <span class="section-index">03</span>
-        <span class="section-sub" id="inspiration-sub">學長姐的專題海報，點圖看大圖</span>
-      </div>
-      <div id="inspiration-container" class="inspiration-container">
-        <!-- 由 JS 依 inspiration/manifest.json 動態產生 -->
-      </div>
+      <details class="section-collapsible">
+        <summary class="section-heading section-heading-summary">
+          <h2 id="inspiration-heading">過去作品參考</h2>
+          <span class="section-index">03</span>
+          <span class="section-sub" id="inspiration-sub">學長姐的專題海報，點圖看大圖</span>
+          <span class="section-toggle" aria-hidden="true">
+            <span class="section-toggle-closed">▸ 展開</span>
+            <span class="section-toggle-open">▾ 收合</span>
+          </span>
+        </summary>
+        <div id="inspiration-container" class="inspiration-container">
+          <!-- 由 JS 依 inspiration/manifest.json 動態產生 -->
+        </div>
+      </details>
     </section>
   </main>
 
@@ -143,17 +290,12 @@
     <button class="inspiration-lightbox-nav prev" data-lightbox-prev aria-label="上一張">‹</button>
     <button class="inspiration-lightbox-nav next" data-lightbox-next aria-label="下一張">›</button>
     <button class="inspiration-lightbox-close" data-close-lightbox aria-label="關閉">×</button>
-    <figure class="inspiration-lightbox-figure" role="dialog" aria-modal="true" aria-label="歷屆作品大圖檢視">
+    <figure class="inspiration-lightbox-figure" role="dialog" aria-modal="true" aria-label="過去作品大圖檢視">
       <img id="inspiration-lightbox-img" alt="" />
       <figcaption id="inspiration-lightbox-caption"></figcaption>
     </figure>
   </div>
 
-  <footer class="site-footer">
-    <div class="footer-rule"></div>
-    <p>AUTO-REFRESH EVERY <span id="refresh-interval-label">30</span>S · PAUSED WHEN HIDDEN OR IDLE</p>
-    <p class="footer-credit">BTS Student Showcase · Curated for Project-Based Learning</p>
-  </footer>
 
   <script src="config.js"></script>
   <script src="app.js"></script>
