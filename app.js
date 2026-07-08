@@ -32,6 +32,24 @@
     return STUDENT_TOPICS.get(normalizeName(studentName)) || "";
   }
 
+  function isHiddenEntry(entry) {
+    const rules = CONFIG.hiddenEntries;
+    if (!Array.isArray(rules) || !rules.length) return false;
+    const studentKey = normalizeName(entry.student);
+    const title = String(entry.title || "").trim();
+    return rules.some(rule => {
+      if (!rule || !rule.student) return false;
+      if (normalizeName(rule.student) !== studentKey) return false;
+      if (rule.title != null && String(rule.title).trim() !== "") {
+        return title === String(rule.title).trim();
+      }
+      if (rule.titleMatch != null && String(rule.titleMatch).trim() !== "") {
+        return title.includes(String(rule.titleMatch).trim());
+      }
+      return true;
+    });
+  }
+
   function getClassInfo(classId) {
     return CLASS_BY_ID.get(classId) || { id: classId, label: classId || "未分班", color: "#8a93a6" };
   }
@@ -2065,6 +2083,7 @@
       avatarsByStudent = new Map();
       const entries = [];
       for (const e of raw) {
+        if (isHiddenEntry(e)) continue;
         if (isAvatarEntry(e)) {
           const key = normalizeName(e.student);
           const existing = avatarsByStudent.get(key);

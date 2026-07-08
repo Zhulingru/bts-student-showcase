@@ -83,6 +83,13 @@ const CONFIG = {
   // 之後要開放給學生上傳時，改成 false 即可回到原本狀態。
   publicViewMode: true,
 
+  // ─── 隱藏特定產出（選用）──────────────────────────────────────
+  // 試算表列仍保留，只是不在網站顯示（近期更新、個人牆、作品計數）。
+  // student 必須和 students[].name 完全一致；title 為標題精確比對。
+  hiddenEntries: [
+    { student: "張語晴", title: "任務2" },
+  ],
+
   // ─── 任務三 · 每週週誌連結（Google Docs）────────────────────────
   // key 必須和上方 students[].name 完全一致（一字不差）
   // 值是「知道連結的使用者可檢視」的 Google Docs 網址
